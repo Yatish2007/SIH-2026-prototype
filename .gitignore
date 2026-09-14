@@ -1,4 +1,4 @@
-__pycache__/
-*.pyc
-certificate.db
-certificates/
+certificate.db 
+certificates/ 
+__pycache__/ 
+*.pyc 
