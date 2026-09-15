@@ -1,0 +1,34 @@
+[
+  {
+    "id": 1,
+    "topic": "Atmospheric Science",
+    "proficiencyScore": 65,
+    "targetScore": 85,
+    "gapDescription": "Needs deeper understanding of stratospheric ozone dynamics and thermal structure.",
+    "recommendedModules": [
+      "Advanced Atmospheric Dynamics",
+      "Ozone Layer Monitoring & Sensor Calibration"
+    ]
+  },
+  {
+    "id": 2,
+    "topic": "Oceanography",
+    "proficiencyScore": 45,
+    "targetScore": 80,
+    "gapDescription": "Low score on buoy telemetry interpretation and CTD sensor data processing.",
+    "recommendedModules": [
+      "CTD Profiler Data Processing Workflow",
+      "Ocean Buoy Telemetry Protocols"
+    ]
+  },
+  {
+    "id": 3,
+    "topic": "Polar Science",
+    "proficiencyScore": 88,
+    "targetScore": 90,
+    "gapDescription": "Strong proficiency; minor refresher needed on AWS field maintenance procedures.",
+    "recommendedModules": [
+      "Automated Weather Station (AWS) Maintenance in Extreme Cold"
+    ]
+  }
+]
