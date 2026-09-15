@@ -1,37 +1,27 @@
-from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column
-
-from .database import Base
+from pydantic import BaseModel, ConfigDict
 
 
-class User(Base):
-    __tablename__ = "users"
+class UserRegister(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str = "trainee"
 
-    id: Mapped[int] = mapped_column(
-        primary_key=True,
-        index=True
-    )
 
-    name: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False
-    )
+class UserLogin(BaseModel):
+    email: str
+    password: str
 
-    email: Mapped[str] = mapped_column(
-        String(150),
-        unique=True,
-        index=True,
-        nullable=False
-    )
 
-    password: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False
-    )
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    role: str
 
-    role: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-        default="trainee"
-    )
-    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str

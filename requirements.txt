@@ -1,6 +1,6 @@
 fastapi
 uvicorn
 sqlalchemy
-pyjwt
-pwdlib
+PyJWT
+pwdlib[argon2]
 python-multipart
