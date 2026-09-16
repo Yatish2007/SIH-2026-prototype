@@ -20,6 +20,14 @@ export default function CertificateView({ certData, currentUser, onRestart }) {
         </div>
 
         <div className="flex items-center gap-3">
+          <a
+            href={`http://localhost:8000/certificates/download/${code}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/30"
+          >
+            <Download className="w-4 h-4" /> Download Official PDF
+          </a>
           <button
             onClick={handlePrint}
             className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-all"
