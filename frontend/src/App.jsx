@@ -1,92 +1,166 @@
 import React, { useState } from 'react';
 import Header from '@/components/layout/Header';
 import RoleSwitcher from '@/components/layout/RoleSwitcher';
-import SopUploader from '@/components/trainer/SopUploader';
-import QuizInterface from '@/components/trainee/QuizInterface';
-import mockSkillGaps from '@/data/mockSkillGaps.json';
 import LoginPage from './pages/LoginPage';
+
+// Trainee Components
+import CourseSelection from './components/trainee/CourseSelection';
+import SelfLevelSelector from './components/trainee/SelfLevelSelector';
+import QuizInterface from './components/trainee/QuizInterface';
+import LevelScalingResult from './components/trainee/LevelScalingResult';
+import PersonalizedLearningPage from './components/trainee/PersonalizedLearningPage';
+import PostAssessment from './components/trainee/PostAssessment';
+import CertificateView from './components/trainee/CertificateView';
+
+// Trainer & Admin Components
+import TrainerDashboard from './components/trainer/TrainerDashboard';
+import AdminDashboard from './components/admin/AdminDashboard';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeRole, setActiveRole] = useState('trainer');
+  const [activeRole, setActiveRole] = useState('trainee');
+
+  // Trainee Workflow State Machine Steps:
+  // 'course_select' -> 'self_level' -> 'quiz' -> 'scaling_result' -> 'personalized_learning' -> 'post_assessment' -> 'certificate'
+  const [traineeStep, setTraineeStep] = useState('course_select');
+
+  // Trainee Data State
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [selfLevel, setSelfLevel] = useState('Intermediate');
+  const [scalingResult, setScalingResult] = useState(null);
+  const [certificateData, setCertificateData] = useState(null);
 
   const handleLogin = (userData) => {
     setCurrentUser(userData);
-    
-    // Automatically set default view based on credentials
-    if (userData.username.toLowerCase().includes('trainee')) {
-      setActiveRole('trainee');
-    } else {
-      setActiveRole('trainer');
-    }
-    
+    setActiveRole(userData.role?.toLowerCase() || 'trainee');
     setIsAuthenticated(true);
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     setCurrentUser(null);
+    setTraineeStep('course_select');
   };
 
-  // 1. Show Login Page if not authenticated
+  // Trainee Step Navigation Handlers
+  const handleSelectCourse = (course) => {
+    setSelectedCourse(course);
+    setTraineeStep('self_level');
+  };
+
+  const handleConfirmSelfLevel = (lvl) => {
+    setSelfLevel(lvl);
+    setTraineeStep('quiz');
+  };
+
+  const handleCompleteQuiz = (res) => {
+    setScalingResult(res);
+    setTraineeStep('scaling_result');
+  };
+
+  const handleProceedToPersonalizedLearning = () => {
+    setTraineeStep('personalized_learning');
+  };
+
+  const handleProceedToPostAssessment = () => {
+    setTraineeStep('post_assessment');
+  };
+
+  const handleCertificateEarned = (cert) => {
+    setCertificateData(cert);
+    setTraineeStep('certificate');
+  };
+
+  const handleRestartTraineeJourney = () => {
+    setSelectedCourse(null);
+    setScalingResult(null);
+    setCertificateData(null);
+    setTraineeStep('course_select');
+  };
+
+  // 1. Render Login Page if unauthenticated
   if (!isAuthenticated) {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  // 2. Render your original prototype layout upon login
+  // Render main portal layout
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans selection:bg-blue-500 selection:text-white">
       <div className="relative">
         <Header />
-        {/* Logout button floating on top right of Header */}
-        <button
-          onClick={handleLogout}
-          className="absolute top-4 right-6 bg-rose-600/20 text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded text-xs hover:bg-rose-600 hover:text-white transition-all font-medium"
-        >
-          Logout ({currentUser?.username})
-        </button>
+        {/* Logout & User Profile floating action */}
+        <div className="absolute top-4 right-6 flex items-center gap-3">
+          <span className="text-xs text-slate-400 hidden sm:inline">
+            Logged in as <strong className="text-white capitalize">{currentUser?.username}</strong> ({activeRole})
+          </span>
+          <button
+            onClick={handleLogout}
+            className="bg-rose-600/20 text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs hover:bg-rose-600 hover:text-white transition-all font-semibold"
+          >
+            Logout
+          </button>
+        </div>
       </div>
 
+      {/* Role Switcher */}
       <RoleSwitcher activeRole={activeRole} setActiveRole={setActiveRole} />
 
+      {/* Main Content Area */}
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
-        {activeRole === 'trainer' ? (
-          <div className="space-y-6">
-            <SopUploader />
+        {activeRole === 'trainer' && <TrainerDashboard />}
 
-            <div className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-6 shadow-md">
-              <h3 className="text-lg font-semibold text-white mb-1">Trainee Skill Gap Analytics</h3>
-              <p className="text-xs text-slate-400 mb-4">
-                Automated skill assessment overview based on historical trainee evaluations.
-              </p>
+        {activeRole === 'admin' && <AdminDashboard />}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {mockSkillGaps.map((item) => (
-                  <div key={item.id} className="bg-slate-900/60 border border-slate-700/50 rounded-lg p-4 flex flex-col justify-between">
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-semibold text-white">{item.topic}</span>
-                        <span className="text-xs font-mono text-blue-400">{item.proficiencyScore}%</span>
-                      </div>
-                      <p className="text-xs text-slate-400 mb-3">{item.gapDescription}</p>
-                    </div>
-                    <div className="border-t border-slate-800 pt-3">
-                      <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold block mb-1">
-                        Recommended Module
-                      </span>
-                      <span className="text-xs text-slate-300 font-medium">
-                        {item.recommendedModules[0]}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <QuizInterface />
+        {activeRole === 'trainee' && (
+          <div>
+            {traineeStep === 'course_select' && (
+              <CourseSelection onSelectCourse={handleSelectCourse} />
+            )}
+
+            {traineeStep === 'self_level' && (
+              <SelfLevelSelector
+                selectedCourse={selectedCourse}
+                onConfirmLevel={handleConfirmSelfLevel}
+              />
+            )}
+
+            {traineeStep === 'quiz' && (
+              <QuizInterface
+                selectedCourse={selectedCourse}
+                selfLevel={selfLevel}
+                onCompleteQuiz={handleCompleteQuiz}
+              />
+            )}
+
+            {traineeStep === 'scaling_result' && (
+              <LevelScalingResult
+                scalingResult={scalingResult}
+                onProceedToPersonalizedLearning={handleProceedToPersonalizedLearning}
+              />
+            )}
+
+            {traineeStep === 'personalized_learning' && (
+              <PersonalizedLearningPage
+                scalingResult={scalingResult}
+                onProceedToPostAssessment={handleProceedToPostAssessment}
+              />
+            )}
+
+            {traineeStep === 'post_assessment' && (
+              <PostAssessment
+                selectedCourse={selectedCourse}
+                onCertificateEarned={handleCertificateEarned}
+              />
+            )}
+
+            {traineeStep === 'certificate' && (
+              <CertificateView
+                certData={certificateData}
+                currentUser={currentUser}
+                onRestart={handleRestartTraineeJourney}
+              />
+            )}
           </div>
         )}
       </main>
