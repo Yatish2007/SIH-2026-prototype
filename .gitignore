@@ -2,3 +2,7 @@ certificate.db
 certificates/ 
 __pycache__/ 
 *.pyc 
+*.pyo
+*.db
+.venv/
+.env
