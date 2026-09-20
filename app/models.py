@@ -25,7 +25,125 @@ class Course(Base):
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     duration: Mapped[str] = mapped_column(String(50), default="4 Hours")
+    difficulty: Mapped[str] = mapped_column(String(50), default="Intermediate")
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    learning_objectives: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=True)
+    trainer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CourseModule(Base):
+    __tablename__ = "course_modules"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, default=1)
+    is_mandatory: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CourseMaterial(Base):
+    __tablename__ = "course_materials"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    module_id: Mapped[int] = mapped_column(ForeignKey("course_modules.id"), nullable=False)
+    trainer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(250), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    material_type: Mapped[str] = mapped_column(String(50), nullable=False) # video, document, presentation, note
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_url: Mapped[str] = mapped_column(Text, nullable=False)
+    mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class LearningPolicy(Base):
+    __tablename__ = "learning_policies"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), unique=True, nullable=False)
+    trainer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    minimum_content_percentage: Mapped[float] = mapped_column(Float, default=90.0)
+    minimum_video_watch_percentage: Mapped[float] = mapped_column(Float, default=85.0)
+    maximum_skip_percentage: Mapped[float] = mapped_column(Float, default=15.0)
+    allowed_playback_speed: Mapped[float] = mapped_column(Float, default=1.5)
+    inactivity_threshold: Mapped[int] = mapped_column(Integer, default=60)
+    require_all_mandatory_modules: Mapped[bool] = mapped_column(Boolean, default=True)
+    final_assessment_required: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class FinalAssessment(Base):
+    __tablename__ = "final_assessments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), unique=True, nullable=False)
+    trainer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), default="Final Course Assessment")
+    instructions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    pass_percentage: Mapped[float] = mapped_column(Float, default=70.0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=2)
+    time_limit_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    randomize_questions: Mapped[bool] = mapped_column(Boolean, default=True)
+    randomize_options: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class FinalAssessmentQuestion(Base):
+    __tablename__ = "final_assessment_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    assessment_id: Mapped[int] = mapped_column(ForeignKey("final_assessments.id"), nullable=False)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    options_json: Mapped[str] = mapped_column(Text, nullable=False) # JSON array of options
+    correct_answer: Mapped[int] = mapped_column(Integer, nullable=False) # Index
+    marks: Mapped[int] = mapped_column(Integer, default=1)
+    explanation: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class FinalAssessmentAttempt(Base):
+    __tablename__ = "final_assessment_attempts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    assessment_id: Mapped[int] = mapped_column(ForeignKey("final_assessments.id"), nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_marks: Mapped[int] = mapped_column(Integer, nullable=False)
+    percentage: Mapped[float] = mapped_column(Float, nullable=False)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    answers_json: Mapped[str] = mapped_column(Text, nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, default=1)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CourseCompletion(Base):
+    __tablename__ = "course_completions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    learning_policy_passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    final_assessment_passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    final_score: Mapped[float] = mapped_column(Float, default=0.0)
+    certificate_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class QuizQuestion(Base):
@@ -89,9 +207,15 @@ class LearningSession(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), nullable=False)
-    personalized_path_id: Mapped[int] = mapped_column(ForeignKey("personalized_paths.id"), nullable=False)
+    personalized_path_id: Mapped[Optional[int]] = mapped_column(ForeignKey("personalized_paths.id"), nullable=True)
+    module_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    material_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="in_progress") # in_progress, completed, incomplete
     progress_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    watch_time_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    skipped_time_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    playback_speed: Mapped[float] = mapped_column(Float, default=1.0)
+    inactivity_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -101,7 +225,7 @@ class VideoMonitoringEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("learning_sessions.id"), nullable=False)
-    event_type: Mapped[str] = mapped_column(String(50), nullable=False) # seek_skip, pause, focus_lost, progress_update, completed
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False) # seek_skip, pause, focus_lost, progress_update, completed, speed_change, inactivity
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     details: Mapped[str] = mapped_column(Text, nullable=True)
 
@@ -136,4 +260,4 @@ class TrainerResource(Base):
     file_type: Mapped[str] = mapped_column(String(50), nullable=False)
     resource_url: Mapped[str] = mapped_column(Text, nullable=False)
     uploaded_by: Mapped[str] = mapped_column(String(100), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

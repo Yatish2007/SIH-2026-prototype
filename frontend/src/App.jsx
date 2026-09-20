@@ -143,6 +143,7 @@ export default function App() {
             {traineeStep === 'personalized_learning' && (
               <PersonalizedLearningPage
                 scalingResult={scalingResult}
+                selectedCourse={selectedCourse}
                 onProceedToPostAssessment={handleProceedToPostAssessment}
               />
             )}

@@ -78,6 +78,14 @@ export const courseService = {
       ];
     }
   },
+  getCourseDetail: async (courseId) => {
+    try {
+      const res = await api.get(`/courses/${courseId}`);
+      return res.data;
+    } catch (err) {
+      return null;
+    }
+  },
   getQuizQuestions: async (courseId) => {
     try {
       const res = await api.get(`/courses/${courseId}/quiz`);
@@ -196,12 +204,27 @@ export const personalizationService = {
 };
 
 export const monitoringService = {
-  sendTelemetry: async (sessionId, eventType, progressPct, details = "") => {
+  startSession: async (courseId, moduleId = null, materialId = null) => {
+    try {
+      const res = await api.post('/monitoring/sessions/start', {
+        course_id: courseId,
+        module_id: moduleId,
+        material_id: materialId
+      });
+      return res.data;
+    } catch (err) {
+      return { session_id: Date.now(), course_id: courseId, status: 'in_progress', progress_pct: 0 };
+    }
+  },
+  sendTelemetry: async (sessionId, eventType, progressPct, details = "", watchTimeSec = 0, skippedSec = 0, speed = 1.0) => {
     try {
       const res = await api.post('/monitoring/telemetry', {
         session_id: sessionId,
         event_type: eventType,
         progress_pct: progressPct,
+        watch_time_seconds: watchTimeSec,
+        skipped_time_seconds: skippedSec,
+        playback_speed: speed,
         details: details
       });
       return res.data;
@@ -212,6 +235,14 @@ export const monitoringService = {
         progress_pct: progressPct,
         message: eventType === 'seek_skip' ? 'AI Alert: Seek detected! Session flagged.' : 'Telemetry updated.'
       };
+    }
+  },
+  getPolicyStatus: async (courseId) => {
+    try {
+      const res = await api.get(`/monitoring/courses/${courseId}/policy-status`);
+      return res.data;
+    } catch (err) {
+      return { is_unlocked: true, policy_passed: true };
     }
   }
 };
@@ -230,6 +261,129 @@ export const certificateService = {
         issued_date: new Date().toISOString(),
         status: "VALID"
       };
+    }
+  }
+};
+
+// ==========================================
+// TRAINER SERVICE — Course, Module, Material, Policy, Assessment Management
+// ==========================================
+
+export const trainerService = {
+  // ---- COURSES ----
+  createCourse: async (data) => {
+    const res = await api.post('/courses/', data);
+    return res.data;
+  },
+
+  updateCourse: async (courseId, data) => {
+    const res = await api.put(`/courses/${courseId}`, data);
+    return res.data;
+  },
+
+  getCourseDetail: async (courseId) => {
+    const res = await api.get(`/courses/${courseId}`);
+    return res.data;
+  },
+
+  // ---- MODULES ----
+  getModules: async (courseId) => {
+    const res = await api.get(`/trainer/courses/${courseId}/modules`);
+    return res.data;
+  },
+
+  createModule: async (courseId, data) => {
+    const res = await api.post(`/trainer/courses/${courseId}/modules`, data);
+    return res.data;
+  },
+
+  updateModule: async (moduleId, data) => {
+    const res = await api.put(`/trainer/modules/${moduleId}`, data);
+    return res.data;
+  },
+
+  deleteModule: async (moduleId) => {
+    const res = await api.delete(`/trainer/modules/${moduleId}`);
+    return res.data;
+  },
+
+  // ---- MATERIALS (File Upload) ----
+  uploadMaterial: async (courseId, moduleId, formData, onProgress) => {
+    // formData must contain: file, title, material_type, description (optional)
+    const token = localStorage.getItem('access_token');
+    const res = await axios.post(
+      `${API_BASE_URL}/trainer/courses/${courseId}/modules/${moduleId}/materials`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        onUploadProgress: (evt) => {
+          if (onProgress && evt.total) {
+            onProgress(Math.round((evt.loaded / evt.total) * 100));
+          }
+        }
+      }
+    );
+    return res.data;
+  },
+
+  deleteMaterial: async (materialId) => {
+    const res = await api.delete(`/trainer/materials/${materialId}`);
+    return res.data;
+  },
+
+  // ---- LEARNING POLICY ----
+  getLearningPolicy: async (courseId) => {
+    const res = await api.get(`/trainer/courses/${courseId}/learning-policy`);
+    return res.data;
+  },
+
+  updateLearningPolicy: async (courseId, data) => {
+    const res = await api.put(`/trainer/courses/${courseId}/learning-policy`, data);
+    return res.data;
+  },
+
+  // ---- FINAL ASSESSMENT ----
+  getAssessment: async (courseId) => {
+    const res = await api.get(`/trainer/courses/${courseId}/assessment`);
+    return res.data;
+  },
+
+  updateAssessmentSettings: async (courseId, data) => {
+    const res = await api.put(`/trainer/courses/${courseId}/assessment/settings`, data);
+    return res.data;
+  },
+
+  addQuestion: async (courseId, data) => {
+    const res = await api.post(`/trainer/courses/${courseId}/assessment/questions`, data);
+    return res.data;
+  },
+
+  updateQuestion: async (questionId, data) => {
+    const res = await api.put(`/trainer/assessment/questions/${questionId}`, data);
+    return res.data;
+  },
+
+  deleteQuestion: async (questionId) => {
+    const res = await api.delete(`/trainer/assessment/questions/${questionId}`);
+    return res.data;
+  },
+
+  // ---- TRAINEE PROGRESS ANALYTICS ----
+  getTraineeProgress: async (courseId) => {
+    const res = await api.get(`/trainer/courses/${courseId}/trainee-progress`);
+    return res.data;
+  },
+
+  // ---- SKILL GAP ANALYTICS ----
+  getSkillGapAnalytics: async () => {
+    try {
+      const res = await api.get('/trainer/skill-gap-analytics');
+      return res.data;
+    } catch (err) {
+      return [];
     }
   }
 };
