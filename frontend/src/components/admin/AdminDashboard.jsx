@@ -1,68 +1,190 @@
-import React, { useState } from 'react';
-import { Users, BookOpen, Award, Activity, ShieldCheck, Bell, CheckCircle2, UserCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Users, BookOpen, Award, Activity, ShieldCheck, Bell, CheckCircle2, UserCheck,
+  Loader2, RefreshCw, Server, BarChart3, GraduationCap, Cpu
+} from 'lucide-react';
+import { adminService } from '../../services/api';
 
 export default function AdminDashboard() {
-  const [users, setUsers] = useState([
-    { id: 1, name: 'Alex Johnson', email: 'alex@example.com', role: 'trainee', status: 'Active' },
-    { id: 2, name: 'Sarah Miller', email: 'sarah@example.com', role: 'trainer', status: 'Active' },
-    { id: 3, name: 'David Chen', email: 'david@example.com', role: 'trainee', status: 'Pending Approval' }
-  ]);
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const handleApprove = (id) => {
-    setUsers(users.map(u => u.id === id ? { ...u, status: 'Active' } : u));
+  const fetchData = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const [statsData, usersData] = await Promise.all([
+        adminService.getDashboardStats(),
+        adminService.getUsers()
+      ]);
+      setStats(statsData);
+      setUsers(usersData);
+    } catch (err) {
+      console.error('Admin data fetch error:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 space-y-4">
+        <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+        <p className="text-sm text-slate-400">Loading Admin Dashboard...</p>
+      </div>
+    );
+  }
+
+  const statCards = [
+    {
+      label: 'Total Users',
+      value: stats?.total_users ?? 0,
+      icon: <Users className="w-5 h-5 text-blue-400" />,
+      sub: `${stats?.trainee_count ?? 0} trainees · ${stats?.trainer_count ?? 0} trainers`,
+      color: 'blue'
+    },
+    {
+      label: 'Active Courses',
+      value: stats?.active_courses ?? 0,
+      icon: <BookOpen className="w-5 h-5 text-indigo-400" />,
+      sub: 'Published course catalog',
+      color: 'indigo'
+    },
+    {
+      label: 'Quiz Attempts',
+      value: stats?.total_quiz_attempts ?? 0,
+      icon: <Activity className="w-5 h-5 text-amber-400" />,
+      sub: 'Total skill assessments taken',
+      color: 'amber'
+    },
+    {
+      label: 'Certificates Issued',
+      value: stats?.issued_certificates ?? 0,
+      icon: <Award className="w-5 h-5 text-emerald-400" />,
+      sub: 'Verified completion certificates',
+      color: 'emerald'
+    },
+    {
+      label: 'Active Sessions',
+      value: stats?.active_learning_sessions ?? 0,
+      icon: <Cpu className="w-5 h-5 text-purple-400" />,
+      sub: 'Live learning activity',
+      color: 'purple'
+    },
+    {
+      label: 'System Status',
+      value: stats?.system_status ?? 'N/A',
+      icon: <Server className="w-5 h-5 text-emerald-400" />,
+      sub: 'Backend API health',
+      color: 'emerald',
+      isText: true
+    }
+  ];
+
+  const colorMap = {
+    blue: 'border-blue-500/20 bg-blue-950/20',
+    indigo: 'border-indigo-500/20 bg-indigo-950/20',
+    amber: 'border-amber-500/20 bg-amber-950/20',
+    emerald: 'border-emerald-500/20 bg-emerald-950/20',
+    purple: 'border-purple-500/20 bg-purple-950/20',
   };
 
   return (
     <div className="space-y-6">
-      {/* Overview Stats */}
-      <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-4">
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-extrabold text-white">Admin Management & Audit Portal</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Monitor system enrollments, manage user roles, and inspect capacity building certificates.
-            </p>
-          </div>
-          <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-500/30 px-3 py-1 rounded-full">
-            ● System Health: Operational
-          </span>
+      {/* Header */}
+      <div className="bg-gradient-to-r from-slate-800/90 via-indigo-900/20 to-slate-800/90 border border-slate-700/80 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-extrabold text-white flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-indigo-400" />
+            Admin Management & Audit Portal
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Monitor enrollments, manage roles, inspect certificates, and review system health.
+          </p>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-          <div className="bg-slate-900/80 border border-slate-700/50 p-4 rounded-xl">
-            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Total Users</span>
-            <div className="text-2xl font-bold text-white flex items-center gap-2">
-              <Users className="w-5 h-5 text-blue-400" /> 148
-            </div>
-          </div>
-          <div className="bg-slate-900/80 border border-slate-700/50 p-4 rounded-xl">
-            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Active Courses</span>
-            <div className="text-2xl font-bold text-white flex items-center gap-2">
-              <BookOpen className="w-5 h-5 text-indigo-400" /> 3
-            </div>
-          </div>
-          <div className="bg-slate-900/80 border border-slate-700/50 p-4 rounded-xl">
-            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Quiz Attempts</span>
-            <div className="text-2xl font-bold text-white flex items-center gap-2">
-              <Activity className="w-5 h-5 text-amber-400" /> 312
-            </div>
-          </div>
-          <div className="bg-slate-900/80 border border-slate-700/50 p-4 rounded-xl">
-            <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Certificates Issued</span>
-            <div className="text-2xl font-bold text-white flex items-center gap-2">
-              <Award className="w-5 h-5 text-emerald-400" /> 89
-            </div>
-          </div>
+        <div className="flex items-center gap-3">
+          <span className={`text-xs font-mono font-bold px-3 py-1.5 rounded-full border ${
+            stats?.system_status === 'Operational'
+              ? 'text-emerald-400 bg-emerald-950/80 border-emerald-500/30'
+              : 'text-amber-400 bg-amber-950/80 border-amber-500/30'
+          }`}>
+            ● {stats?.system_status ?? 'Checking...'}
+          </span>
+          <button
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
         </div>
       </div>
 
-      {/* User & Role Approvals Table */}
-      <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-md space-y-4">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          <UserCheck className="w-4 h-4 text-blue-400" /> User Approvals & Role Management
-        </h3>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {statCards.map((card) => (
+          <div
+            key={card.label}
+            className={`bg-slate-900/80 border ${colorMap[card.color] || 'border-slate-700/50'} rounded-xl p-4 space-y-1 hover:scale-[1.02] transition-all`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">{card.label}</span>
+              {card.icon}
+            </div>
+            <div className="text-2xl font-black text-white">{card.value}</div>
+            <div className="text-[10px] text-slate-500">{card.sub}</div>
+          </div>
+        ))}
+      </div>
 
-        <div className="overflow-x-auto">
+      {/* Notifications */}
+      {stats?.notifications?.length > 0 && (
+        <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-md space-y-3">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <Bell className="w-4 h-4 text-amber-400" />
+            System Notifications
+          </h3>
+          <div className="space-y-2">
+            {stats.notifications.map((n) => (
+              <div key={n.id} className="flex items-start gap-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                <div className="w-2 h-2 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-slate-200">{n.title}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">{n.message}</div>
+                </div>
+                <span className="text-[10px] text-slate-500 shrink-0 font-mono">{n.time}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* User Management Table */}
+      <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl shadow-md overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/60">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <UserCheck className="w-4 h-4 text-blue-400" />
+            User Management
+            <span className="text-[10px] text-slate-500 font-normal ml-1">({users.length} users)</span>
+          </h3>
+          <div className="flex items-center gap-2 text-[10px] text-slate-500">
+            <GraduationCap className="w-3.5 h-3.5 text-indigo-400" />
+            {stats?.trainee_count ?? '—'} trainees &nbsp;·&nbsp;
+            <BarChart3 className="w-3.5 h-3.5 text-blue-400" />
+            {stats?.trainer_count ?? '—'} trainers
+          </div>
+        </div>
+
+        <div className="overflow-x-auto p-5">
           <table className="w-full text-left text-xs text-slate-300">
             <thead className="bg-slate-900/80 text-slate-400 text-[10px] uppercase font-bold border-b border-slate-700">
               <tr>
@@ -70,36 +192,43 @@ export default function AdminDashboard() {
                 <th className="p-3">Email Address</th>
                 <th className="p-3">Assigned Role</th>
                 <th className="p-3">Status</th>
-                <th className="p-3 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/50">
-              {users.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-700/30">
-                  <td className="p-3 font-semibold text-white">{u.name}</td>
-                  <td className="p-3 font-mono text-slate-400">{u.email}</td>
-                  <td className="p-3 uppercase font-bold text-blue-400 text-[10px]">{u.role}</td>
-                  <td className="p-3">
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                      u.status === 'Active' ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30' : 'bg-amber-950 text-amber-400 border border-amber-500/30'
-                    }`}>
-                      {u.status}
-                    </span>
-                  </td>
-                  <td className="p-3 text-right">
-                    {u.status === 'Pending Approval' ? (
-                      <button
-                        onClick={() => handleApprove(u.id)}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold px-3 py-1 rounded-md transition-all"
-                      >
-                        Approve User
-                      </button>
-                    ) : (
-                      <span className="text-slate-500 text-[11px]">Approved</span>
-                    )}
+              {users.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="p-8 text-center text-slate-500">
+                    No users found. Register users through the auth endpoints.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                users.map((u) => (
+                  <tr key={u.id} className="hover:bg-slate-700/20 transition-colors">
+                    <td className="p-3 font-semibold text-white">{u.name}</td>
+                    <td className="p-3 font-mono text-slate-400">{u.email}</td>
+                    <td className="p-3">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                        u.role === 'trainer'
+                          ? 'bg-blue-950/60 text-blue-300 border-blue-500/40'
+                          : u.role === 'admin'
+                          ? 'bg-purple-950/60 text-purple-300 border-purple-500/40'
+                          : 'bg-slate-900/60 text-slate-300 border-slate-700/60'
+                      }`}>
+                        {u.role?.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        u.status === 'Active'
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-amber-950 text-amber-400 border border-amber-500/30'
+                      }`}>
+                        {u.status ?? 'Active'}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

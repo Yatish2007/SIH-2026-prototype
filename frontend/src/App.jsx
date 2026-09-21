@@ -92,7 +92,7 @@ export default function App() {
         {/* Logout & User Profile floating action */}
         <div className="absolute top-4 right-6 flex items-center gap-3">
           <span className="text-xs text-slate-400 hidden sm:inline">
-            Logged in as <strong className="text-white capitalize">{currentUser?.username}</strong> ({activeRole})
+            Logged in as <strong className="text-white capitalize">{currentUser?.name}</strong> ({activeRole})
           </span>
           <button
             onClick={handleLogout}
