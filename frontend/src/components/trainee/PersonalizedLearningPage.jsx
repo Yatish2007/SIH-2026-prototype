@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Sparkles, BookOpen, Layers, CheckCircle2, ArrowRight, Video,
   Target, ShieldCheck, FileText, File, ChevronRight, Loader2,
-  Play, Presentation
+  Play, Presentation, Award
 } from 'lucide-react';
 import AIVideoPlayer from './AIVideoPlayer';
 import { personalizationService, courseService } from '../../services/api';
@@ -126,13 +126,28 @@ export default function PersonalizedLearningPage({ scalingResult, selectedCourse
             <p className="text-xs text-slate-300 mt-1 max-w-xl">{pathData?.objective}</p>
           </div>
 
-          <div className="bg-slate-900/90 border border-slate-700/80 rounded-xl p-4 text-right shrink-0">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">
-              Assessed Skill Tier
-            </span>
-            <span className="text-xl font-black text-blue-400 uppercase tracking-wide">
-              {pathData?.assessed_level || 'Beginner'}
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="bg-slate-900/90 border border-slate-700/80 rounded-xl p-4 text-right shrink-0">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">
+                Assessed Skill Tier
+              </span>
+              <span className="text-xl font-black text-blue-400 uppercase tracking-wide">
+                {pathData?.assessed_level || 'Beginner'}
+              </span>
+            </div>
+
+            <button
+              onClick={onProceedToPostAssessment}
+              className={`px-5 py-3.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-lg shrink-0 ${
+                isReadyForAssessment
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-900/40 ring-2 ring-emerald-400/30 animate-pulse cursor-pointer'
+                  : 'bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 border border-blue-500/40 cursor-pointer'
+              }`}
+            >
+              <Award className="w-4 h-4 text-amber-400" />
+              <span>Final Assessment</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>

@@ -1,5 +1,9 @@
 import json
-from typing import List, Optional
+import sys
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -11,6 +15,10 @@ from ..models import (
     LearningPolicy,
     FinalAssessment,
     FinalAssessmentQuestion,
+    FinalAssessmentAttempt,
+    CourseCompletion,
+    Certificate,
+    LearningSession,
     QuizQuestion,
     User
 )
@@ -21,9 +29,24 @@ from ..schemas import (
     CourseDetailResponse,
     ModuleResponse,
     MaterialResponse,
-    QuizQuestionResponse
+    QuizQuestionResponse,
+    FinalAssessmentStatusResponse,
+    FinalQuestionTraineeResponse,
+    FinalAssessmentSubmitRequest,
+    FinalAssessmentAttemptResult
 )
 from .users import get_current_user
+
+# Setup certificate generator path
+CERT_SYSTEM_DIR = Path(__file__).resolve().parent.parent.parent / "certificate-system"
+if str(CERT_SYSTEM_DIR) not in sys.path:
+    sys.path.insert(0, str(CERT_SYSTEM_DIR))
+
+try:
+    from certificate_generator import generate_certificate
+except Exception as e:
+    generate_certificate = None
+
 
 router = APIRouter(
     prefix="/courses",
@@ -445,3 +468,326 @@ def get_course_quiz(course_id: int, db: Session = Depends(get_db)):
             topic=q.topic
         ))
     return result
+
+
+def check_learning_policy_compliance(course_id: int, user_id: int, db: Session) -> Tuple[bool, List[str]]:
+    policy = db.query(LearningPolicy).filter(LearningPolicy.course_id == course_id).first()
+    if not policy:
+        return True, []
+
+    # If course completion already marks learning policy passed
+    comp = (
+        db.query(CourseCompletion)
+        .filter(CourseCompletion.user_id == user_id, CourseCompletion.course_id == course_id)
+        .first()
+    )
+    if comp and comp.learning_policy_passed:
+        return True, []
+
+    sessions = (
+        db.query(LearningSession)
+        .filter(LearningSession.user_id == user_id, LearningSession.course_id == course_id)
+        .all()
+    )
+    max_progress = max([s.progress_pct for s in sessions], default=0.0)
+
+    mandatory_modules = (
+        db.query(CourseModule)
+        .filter(CourseModule.course_id == course_id, CourseModule.is_mandatory == True)
+        .all()
+    )
+    total_mandatory = len(mandatory_modules)
+    is_video_watched = max_progress >= policy.minimum_video_watch_percentage
+    if is_video_watched:
+        mandatory_completed = total_mandatory
+    else:
+        mandatory_completed = max(0, int(total_mandatory * (max_progress / 100)))
+
+    reasons = []
+    if max_progress < policy.minimum_content_percentage:
+        reasons.append(
+            f"Content consumption ({max_progress:.0f}%) is below trainer requirement ({policy.minimum_content_percentage:.0f}%)."
+        )
+    if not is_video_watched:
+        reasons.append(
+            f"Video watch time ({max_progress:.0f}%) is below required minimum ({policy.minimum_video_watch_percentage:.0f}%)."
+        )
+    if policy.require_all_mandatory_modules and mandatory_completed < total_mandatory:
+        reasons.append(
+            f"Mandatory modules incomplete ({mandatory_completed}/{total_mandatory} completed)."
+        )
+
+    passed = len(reasons) == 0
+    if passed:
+        if not comp:
+            comp = CourseCompletion(
+                user_id=user_id,
+                course_id=course_id,
+                learning_policy_passed=True,
+                final_assessment_passed=False
+            )
+            db.add(comp)
+            db.commit()
+        else:
+            comp.learning_policy_passed = True
+            db.commit()
+
+    return passed, reasons
+
+
+@router.get("/{course_id}/final-assessment", response_model=FinalAssessmentStatusResponse)
+def get_final_assessment_status(
+    course_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    seed_database(db)
+
+    # 1. Fetch course & assessment
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    assessment = db.query(FinalAssessment).filter(FinalAssessment.course_id == course_id).first()
+    if not assessment:
+        assessment = db.query(FinalAssessment).filter(FinalAssessment.course_id == 1).first()
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Final assessment configuration not found")
+
+    # 2. Fetch questions
+    questions = (
+        db.query(FinalAssessmentQuestion)
+        .filter(FinalAssessmentQuestion.assessment_id == assessment.id)
+        .order_by(FinalAssessmentQuestion.order_index.asc())
+        .all()
+    )
+    if not questions:
+        questions = (
+            db.query(FinalAssessmentQuestion)
+            .filter(FinalAssessmentQuestion.course_id == 1)
+            .order_by(FinalAssessmentQuestion.order_index.asc())
+            .all()
+        )
+
+    # 3. Check attempts by this user
+    attempts = (
+        db.query(FinalAssessmentAttempt)
+        .filter(
+            FinalAssessmentAttempt.user_id == current_user.id,
+            FinalAssessmentAttempt.course_id == course_id
+        )
+        .order_by(FinalAssessmentAttempt.id.asc())
+        .all()
+    )
+    attempts_used = len(attempts)
+    attempts_remaining = max(0, assessment.max_attempts - attempts_used)
+    has_passed = any(a.passed for a in attempts)
+    best_score = max([a.percentage for a in attempts], default=None)
+
+    # 4. Learning Policy Check (Trainers and admins bypass lock)
+    if current_user.role in {"trainer", "admin"}:
+        policy_compliant = True
+        lock_reasons = []
+    else:
+        policy_compliant, lock_reasons = check_learning_policy_compliance(course_id, current_user.id, db)
+
+    is_locked = not policy_compliant
+
+    if attempts_used >= assessment.max_attempts and not has_passed:
+        is_locked = True
+        lock_reasons.append(f"Maximum allowed assessment attempts ({assessment.max_attempts}) reached.")
+
+    total_questions = len(questions)
+    total_marks = sum(q.marks for q in questions)
+
+    # 5. Format questions for trainee (options parsed, no answers exposed)
+    trainee_questions = []
+    if not is_locked or current_user.role in {"trainer", "admin"}:
+        for q in questions:
+            opts = json.loads(q.options_json) if isinstance(q.options_json, str) else q.options_json
+            trainee_questions.append(
+                FinalQuestionTraineeResponse(
+                    id=q.id,
+                    course_id=q.course_id,
+                    question=q.question,
+                    options=opts,
+                    marks=q.marks,
+                    order_index=q.order_index
+                )
+            )
+
+    return FinalAssessmentStatusResponse(
+        course_id=course_id,
+        title=assessment.title,
+        instructions=assessment.instructions,
+        is_locked=is_locked,
+        lock_reasons=lock_reasons,
+        pass_percentage=assessment.pass_percentage,
+        max_attempts=assessment.max_attempts,
+        attempts_used=attempts_used,
+        attempts_remaining=attempts_remaining,
+        time_limit_minutes=assessment.time_limit_minutes,
+        total_questions=total_questions,
+        total_marks=total_marks,
+        has_passed=has_passed,
+        best_score=best_score,
+        questions=trainee_questions
+    )
+
+
+@router.post("/{course_id}/final-assessment/submit", response_model=FinalAssessmentAttemptResult)
+def submit_final_assessment(
+    course_id: int,
+    data: FinalAssessmentSubmitRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    assessment = db.query(FinalAssessment).filter(FinalAssessment.course_id == course_id).first()
+    if not assessment:
+        assessment = db.query(FinalAssessment).filter(FinalAssessment.course_id == 1).first()
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Final assessment not found")
+
+    # Check remaining attempts
+    previous_attempts = (
+        db.query(FinalAssessmentAttempt)
+        .filter(
+            FinalAssessmentAttempt.user_id == current_user.id,
+            FinalAssessmentAttempt.course_id == course_id
+        )
+        .all()
+    )
+    attempt_num = len(previous_attempts) + 1
+    if len(previous_attempts) >= assessment.max_attempts:
+        raise HTTPException(status_code=400, detail=f"Maximum attempts ({assessment.max_attempts}) reached.")
+
+    questions = (
+        db.query(FinalAssessmentQuestion)
+        .filter(FinalAssessmentQuestion.assessment_id == assessment.id)
+        .all()
+    )
+    if not questions:
+        questions = (
+            db.query(FinalAssessmentQuestion)
+            .filter(FinalAssessmentQuestion.course_id == 1)
+            .all()
+        )
+
+    total_marks = sum(q.marks for q in questions) if questions else 1
+    earned_score = 0
+
+    # Grade submitted answers
+    for q in questions:
+        trainee_ans = data.answers.get(q.id)
+        if trainee_ans is None and str(q.id) in data.answers:
+            trainee_ans = data.answers.get(str(q.id))
+        if trainee_ans is not None and trainee_ans == q.correct_answer:
+            earned_score += q.marks
+
+    percentage = round((earned_score / total_marks) * 100.0, 1) if total_marks > 0 else 0.0
+    passed = percentage >= assessment.pass_percentage
+    remaining_attempts = max(0, assessment.max_attempts - attempt_num)
+
+    attempt = FinalAssessmentAttempt(
+        user_id=current_user.id,
+        course_id=course_id,
+        assessment_id=assessment.id,
+        score=earned_score,
+        total_marks=total_marks,
+        percentage=percentage,
+        passed=passed,
+        answers_json=json.dumps(data.answers),
+        attempt_number=attempt_num,
+        started_at=datetime.utcnow(),
+        submitted_at=datetime.utcnow()
+    )
+    db.add(attempt)
+
+    cert_code = None
+    if passed:
+        # Mark CourseCompletion
+        comp = (
+            db.query(CourseCompletion)
+            .filter(
+                CourseCompletion.user_id == current_user.id,
+                CourseCompletion.course_id == course_id
+            )
+            .first()
+        )
+        if not comp:
+            comp = CourseCompletion(
+                user_id=current_user.id,
+                course_id=course_id,
+                learning_policy_passed=True,
+                final_assessment_passed=True,
+                final_score=percentage,
+                completed_at=datetime.utcnow()
+            )
+            db.add(comp)
+        else:
+            comp.final_assessment_passed = True
+            comp.final_score = max(comp.final_score, percentage)
+
+        # Issue Certificate if not already issued
+        cert = (
+            db.query(Certificate)
+            .filter(
+                Certificate.user_id == current_user.id,
+                Certificate.course_id == course_id
+            )
+            .first()
+        )
+        if not cert:
+            cert_code = f"CC-{uuid.uuid4().hex[:8].upper()}"
+            cert = Certificate(
+                user_id=current_user.id,
+                course_id=course_id,
+                certificate_code=cert_code,
+                issued_date=datetime.utcnow()
+            )
+            db.add(cert)
+        else:
+            cert_code = cert.certificate_code
+
+        comp.certificate_code = cert_code
+
+        # Generate official certificate PDF
+        if generate_certificate:
+            try:
+                generate_certificate({
+                    "name": current_user.name,
+                    "course": course.title,
+                    "score": int(percentage),
+                    "completion_date": cert.issued_date.strftime("%Y-%m-%d"),
+                    "certificate_id": cert_code
+                })
+            except Exception as e:
+                print("Certificate Generator notice:", e)
+
+    db.commit()
+    db.refresh(attempt)
+
+    msg = (
+        f"Congratulations! You passed with {percentage}%."
+        if passed
+        else f"Assessment score: {percentage}%. Required to pass: {assessment.pass_percentage}%."
+    )
+
+    return FinalAssessmentAttemptResult(
+        attempt_id=attempt.id,
+        course_id=course_id,
+        score=earned_score,
+        total_marks=total_marks,
+        percentage=percentage,
+        passed=passed,
+        pass_percentage=assessment.pass_percentage,
+        attempt_number=attempt_num,
+        attempts_remaining=remaining_attempts,
+        certificate_code=cert_code,
+        message=msg
+    )
+

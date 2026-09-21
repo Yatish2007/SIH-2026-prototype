@@ -387,3 +387,26 @@ export const trainerService = {
     }
   }
 };
+
+// ==========================================
+// FINAL ASSESSMENT SERVICE (TRAINEE EXAM & POLICY)
+// ==========================================
+
+export const finalAssessmentService = {
+  getAssessmentStatus: async (courseId) => {
+    try {
+      const res = await api.get(`/courses/${courseId}/final-assessment`);
+      return res.data;
+    } catch (err) {
+      console.error('Error fetching final assessment status:', err);
+      return null;
+    }
+  },
+
+  submitAssessment: async (courseId, answers) => {
+    // answers: { [questionId]: selectedOptionIndex }
+    const res = await api.post(`/courses/${courseId}/final-assessment/submit`, { answers });
+    return res.data;
+  }
+};
+

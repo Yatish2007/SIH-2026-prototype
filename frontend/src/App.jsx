@@ -152,6 +152,7 @@ export default function App() {
               <PostAssessment
                 selectedCourse={selectedCourse}
                 onCertificateEarned={handleCertificateEarned}
+                onBackToLearning={() => setTraineeStep('personalized_learning')}
               />
             )}
 
