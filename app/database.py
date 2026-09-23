@@ -6,10 +6,7 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL is not set in .env")
+DATABASE_URL = "postgresql://postgres.kpxwrlhcyrqzimyfsoij:Sih-prototype%402026@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
 
 engine = create_engine(
     DATABASE_URL,
