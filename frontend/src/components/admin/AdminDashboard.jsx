@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Users, BookOpen, Award, Activity, ShieldCheck, Bell, CheckCircle2, UserCheck,
-  Loader2, RefreshCw, Server, BarChart3, GraduationCap, Cpu
+  Loader2, RefreshCw, Server, BarChart3, GraduationCap, Cpu, Trash2, ArrowUpDown
 } from 'lucide-react';
 import { adminService } from '../../services/api';
 
@@ -10,6 +10,8 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [updatingId, setUpdatingId] = useState(null);
+  const [feedback, setFeedback] = useState(null);
 
   const fetchData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -29,9 +31,44 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleRoleChange = async (userId, newRole) => {
+    setUpdatingId(userId);
+    try {
+      await adminService.updateUserRole(userId, newRole);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+      setFeedback({ type: 'success', message: `User role updated to ${newRole.toUpperCase()} successfully.` });
+      // Refresh stats in background
+      adminService.getDashboardStats().then(setStats);
+    } catch (err) {
+      setFeedback({ type: 'error', message: err?.response?.data?.detail || 'Failed to update user role.' });
+    } finally {
+      setUpdatingId(null);
+      setTimeout(() => setFeedback(null), 4000);
+    }
+  };
+
+  const handleDeleteUser = async (userId, userName) => {
+    if (!window.confirm(`Are you sure you want to delete user "${userName}"? This action cannot be undone.`)) {
+      return;
+    }
+    setUpdatingId(userId);
+    try {
+      await adminService.deleteUser(userId);
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      setFeedback({ type: 'success', message: `User "${userName}" deleted successfully.` });
+      adminService.getDashboardStats().then(setStats);
+    } catch (err) {
+      setFeedback({ type: 'error', message: err?.response?.data?.detail || 'Failed to delete user.' });
+    } finally {
+      setUpdatingId(null);
+      setTimeout(() => setFeedback(null), 4000);
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
+
 
   if (loading) {
     return (
@@ -173,7 +210,7 @@ export default function AdminDashboard() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/60">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <UserCheck className="w-4 h-4 text-blue-400" />
-            User Management
+            User Management & Role Permissions
             <span className="text-[10px] text-slate-500 font-normal ml-1">({users.length} users)</span>
           </h3>
           <div className="flex items-center gap-2 text-[10px] text-slate-500">
@@ -184,6 +221,17 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {feedback && (
+          <div className={`mx-5 mt-4 p-3 rounded-xl text-xs flex items-center gap-2 border ${
+            feedback.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+              : 'bg-rose-950/80 border-rose-500/40 text-rose-300'
+          }`}>
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{feedback.message}</span>
+          </div>
+        )}
+
         <div className="overflow-x-auto p-5">
           <table className="w-full text-left text-xs text-slate-300">
             <thead className="bg-slate-900/80 text-slate-400 text-[10px] uppercase font-bold border-b border-slate-700">
@@ -192,12 +240,13 @@ export default function AdminDashboard() {
                 <th className="p-3">Email Address</th>
                 <th className="p-3">Assigned Role</th>
                 <th className="p-3">Status</th>
+                <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/50">
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-8 text-center text-slate-500">
+                  <td colSpan={5} className="p-8 text-center text-slate-500">
                     No users found. Register users through the auth endpoints.
                   </td>
                 </tr>
@@ -207,15 +256,22 @@ export default function AdminDashboard() {
                     <td className="p-3 font-semibold text-white">{u.name}</td>
                     <td className="p-3 font-mono text-slate-400">{u.email}</td>
                     <td className="p-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                        u.role === 'trainer'
-                          ? 'bg-blue-950/60 text-blue-300 border-blue-500/40'
-                          : u.role === 'admin'
-                          ? 'bg-purple-950/60 text-purple-300 border-purple-500/40'
-                          : 'bg-slate-900/60 text-slate-300 border-slate-700/60'
-                      }`}>
-                        {u.role?.toUpperCase()}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={u.role}
+                          disabled={updatingId === u.id}
+                          onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                          aria-label={`Change role for ${u.name}`}
+                          className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-[11px] font-bold text-white focus:outline-none focus:border-indigo-500 cursor-pointer disabled:opacity-50"
+                        >
+                          <option value="trainee">TRAINEE</option>
+                          <option value="trainer">TRAINER</option>
+                          <option value="admin">ADMIN</option>
+                        </select>
+                        {updatingId === u.id && (
+                          <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+                        )}
+                      </div>
                     </td>
                     <td className="p-3">
                       <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -225,6 +281,16 @@ export default function AdminDashboard() {
                       }`}>
                         {u.status ?? 'Active'}
                       </span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <button
+                        onClick={() => handleDeleteUser(u.id, u.name)}
+                        disabled={updatingId === u.id}
+                        title="Delete user"
+                        className="text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 p-1.5 rounded-lg border border-transparent hover:border-rose-500/30 transition-all disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </td>
                   </tr>
                 ))

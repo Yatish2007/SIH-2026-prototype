@@ -40,9 +40,56 @@ def get_admin_dashboard_stats(
     }
 
 
+from pydantic import BaseModel
+
+
+class RoleUpdateRequest(BaseModel):
+    role: str
+
+
 @router.get("/users")
 def list_all_users(
     db: Session = Depends(get_db)
 ):
     users = db.query(User).all()
     return [{"id": u.id, "name": u.name, "email": u.email, "role": u.role, "status": "Active"} for u in users]
+
+
+@router.put("/users/{user_id}/role")
+def update_user_role(
+    user_id: int,
+    data: RoleUpdateRequest,
+    db: Session = Depends(get_db)
+):
+    valid_roles = ["trainee", "trainer", "admin"]
+    new_role = data.role.lower().strip()
+    if new_role not in valid_roles:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.role = new_role
+    db.commit()
+    db.refresh(user)
+    return {
+        "message": "Role updated successfully",
+        "user": {"id": user.id, "name": user.name, "email": user.email, "role": user.role}
+    }
+
+
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_name = user.name
+    db.delete(user)
+    db.commit()
+    return {"message": f"User {user_name} deleted successfully", "id": user_id}
+

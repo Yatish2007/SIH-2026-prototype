@@ -450,5 +450,16 @@ export const adminService = {
         { id: 3, name: 'David Chen', email: 'david@example.com', role: 'trainee', status: 'Active' }
       ];
     }
+  },
+
+  updateUserRole: async (userId, role) => {
+    const res = await api.put(`/admin/users/${userId}/role`, { role });
+    return res.data;
+  },
+
+  deleteUser: async (userId) => {
+    const res = await api.delete(`/admin/users/${userId}`);
+    return res.data;
   }
 };
+

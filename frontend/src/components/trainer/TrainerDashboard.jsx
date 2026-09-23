@@ -3,9 +3,11 @@ import {
   UploadCloud, FileText, BarChart3, Plus, CheckCircle2, Video, Layers,
   Settings, BookOpen, Trash2, Edit3, Save, X, ChevronDown, ChevronUp,
   AlertTriangle, Users, Award, ShieldCheck, File, Presentation, FileVideo,
-  Loader2, Eye, EyeOff, RefreshCw
+  Loader2, Eye, EyeOff, RefreshCw, Target, Sparkles
 } from 'lucide-react';
 import { trainerService, courseService } from '../../services/api';
+import SopUploader from './SopUploader';
+
 
 // ====== HELPERS ======
 const MATERIAL_TYPE_ICONS = {
@@ -612,6 +614,7 @@ function AssessmentBuilder({ courseId }) {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [addingQ, setAddingQ] = useState(false);
+  const [showSopUploader, setShowSopUploader] = useState(false);
   const [qForm, setQForm] = useState({ question: '', options: ['', '', '', ''], correct_answer: 0, marks: 1, explanation: '' });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -630,12 +633,30 @@ function AssessmentBuilder({ courseId }) {
 
   useEffect(() => { load(); }, [courseId]);
 
+  const handleImportSopQuestions = async (newQuestions) => {
+    for (const q of newQuestions) {
+      try {
+        const added = await trainerService.addQuestion(courseId, {
+          question: q.question,
+          options: q.options,
+          correct_answer: q.correct_answer,
+          marks: q.marks || 1,
+          explanation: q.explanation || null
+        });
+        setQuestions(prev => [...prev, added]);
+      } catch (e) {
+        console.error('Failed to import question', e);
+      }
+    }
+  };
+
   const handleAddQuestion = async (e) => {
     e.preventDefault();
     if (!qForm.question || qForm.options.some(o => !o)) { setErr('Fill in all 4 options.'); return; }
     setSaving(true); setErr('');
     try {
       const q = await trainerService.addQuestion(courseId, {
+
         question: qForm.question,
         options: qForm.options,
         correct_answer: parseInt(qForm.correct_answer),
@@ -701,9 +722,18 @@ function AssessmentBuilder({ courseId }) {
       </div>
 
       {!addingQ ? (
-        <button onClick={() => setAddingQ(true)} className="flex items-center gap-1.5 text-xs font-semibold bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-all">
-          <Plus className="w-3.5 h-3.5" /> Add Question
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => setAddingQ(true)} className="flex items-center gap-1.5 text-xs font-semibold bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-all shadow-md">
+            <Plus className="w-3.5 h-3.5" /> Add Question Manually
+          </button>
+          <button
+            onClick={() => setShowSopUploader(!showSopUploader)}
+            className="flex items-center gap-1.5 text-xs font-semibold bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 px-3.5 py-2 rounded-lg transition-all"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            {showSopUploader ? 'Hide SOP Parser' : 'Extract from SOP Manual'}
+          </button>
+        </div>
       ) : (
         <form onSubmit={handleAddQuestion} className="bg-slate-900/80 border border-slate-700 rounded-xl p-4 space-y-3">
           <h4 className="text-xs font-bold text-white">New Question</h4>
@@ -743,7 +773,14 @@ function AssessmentBuilder({ courseId }) {
           </div>
         </form>
       )}
+
+      {showSopUploader && (
+        <div className="mt-4">
+          <SopUploader courseId={courseId} onQuestionsImported={handleImportSopQuestions} />
+        </div>
+      )}
     </Section>
+
   );
 }
 
@@ -834,6 +871,116 @@ function TraineeProgress({ courseId }) {
 }
 
 // ============================
+// SKILL GAP & AI REMEDIAL ANALYTICS
+// ============================
+function SkillGapAnalytics() {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const res = await trainerService.getSkillGapAnalytics();
+      setData(res || []);
+    } catch (err) {
+      console.error('Error fetching skill gap analytics:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  return (
+    <Section title="Cohort Skill-Gap & AI Remedial Analytics" icon={<Target className="w-4 h-4 text-emerald-400" />}>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-xs text-slate-300 font-semibold">Cohort Proficiency & Weak Area Diagnostics</p>
+          <p className="text-[11px] text-slate-500">
+            Real-time analytics from trainee pre-assessment quizzes identifying systematic conceptual gaps and AI-generated module recommendations.
+          </p>
+        </div>
+        <button
+          onClick={loadData}
+          className="p-2 rounded-lg border border-slate-700 text-slate-400 hover:text-white transition-all"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-10 space-y-2 text-slate-400 text-xs">
+          <Loader2 className="w-5 h-5 text-emerald-400 animate-spin mr-2" />
+          <span>Analyzing cohort skill metrics...</span>
+        </div>
+      ) : data.length === 0 ? (
+        <p className="text-xs text-slate-500 text-center py-6">No skill gap data recorded yet.</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {data.map((item, idx) => {
+            const score = item.proficiencyScore || 50;
+            const isCritical = score < 50;
+            const isModerate = score >= 50 && score < 70;
+
+            return (
+              <div
+                key={idx}
+                className="bg-slate-900/80 border border-slate-700/80 rounded-xl p-4 space-y-3 flex flex-col justify-between hover:border-slate-600 transition-all"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white tracking-wide">{item.topic}</span>
+                    <span className={`text-xs font-mono font-bold ${
+                      isCritical ? 'text-rose-400' : isModerate ? 'text-amber-400' : 'text-emerald-400'
+                    }`}>
+                      {score}% Proficiency
+                    </span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        isCritical ? 'bg-rose-500' : isModerate ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${score}%` }}
+                    />
+                  </div>
+
+                  <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 text-[11px] text-slate-300">
+                    <span className="font-semibold text-slate-400 block mb-0.5">Identified Gap:</span>
+                    {item.gapDescription}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-1.5 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-indigo-400" />
+                    AI Recommended Remedial
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {item.recommendedModules?.map((mod, i) => (
+                      <span
+                        key={i}
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-950/70 text-indigo-300 border border-indigo-500/30"
+                      >
+                        {mod}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+// ============================
 // MAIN TRAINER DASHBOARD
 // ============================
 export default function TrainerDashboard() {
@@ -855,9 +1002,11 @@ export default function TrainerDashboard() {
   const TABS = [
     { id: 'course_manager', label: 'Course & Modules', icon: <BookOpen className="w-3.5 h-3.5" /> },
     { id: 'policy', label: 'Learning Policy', icon: <Settings className="w-3.5 h-3.5" /> },
-    { id: 'assessment', label: 'Assessment Builder', icon: <Award className="w-3.5 h-3.5" /> },
+    { id: 'assessment', label: 'Assessment & SOP', icon: <Award className="w-3.5 h-3.5" /> },
     { id: 'analytics', label: 'Trainee Progress', icon: <BarChart3 className="w-3.5 h-3.5" /> },
+    { id: 'skill_gaps', label: 'Skill Gap AI', icon: <Target className="w-3.5 h-3.5" /> },
   ];
+
 
   return (
     <div className="space-y-6">
@@ -951,6 +1100,9 @@ export default function TrainerDashboard() {
           ? <TraineeProgress courseId={selectedCourse.id} />
           : <div className="text-center p-10 text-slate-500 text-sm">← Select a course first from the "Course & Modules" tab.</div>
       )}
+
+      {/* SKILL GAP ANALYTICS TAB */}
+      {activeTab === 'skill_gaps' && <SkillGapAnalytics />}
     </div>
   );
 }
