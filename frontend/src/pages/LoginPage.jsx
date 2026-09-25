@@ -40,6 +40,40 @@ export default function LoginPage({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Turns a FastAPI error response into one human-readable line, so the user
+  // sees the real reason ("Email already registered") instead of a generic
+  // failure or "[object Object]" from a 422 validation array.
+  const describeApiError = (err, fallback) => {
+    const detail = err?.response?.data?.detail;
+
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail;
+    }
+
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((d) => {
+          const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : null;
+          const msg = d.msg || 'is invalid';
+          if (!field) return msg;
+          return `${String(field).replace(/_/g, ' ')} ${msg}`;
+        })
+        .filter(Boolean);
+      if (messages.length) return messages.join('. ');
+    }
+
+    if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
+      return detail.message;
+    }
+
+    // No response at all means the request never reached the backend.
+    if (!err?.response) {
+      return 'Unable to connect to the server. Make sure the backend is running.';
+    }
+
+    return fallback;
+  };
+
   // Returns null when the authenticated role is allowed for the selected
   // portal, otherwise a human-readable denial message. The backend role
   // always wins over the UI entry point that was clicked.
@@ -111,7 +145,7 @@ export default function LoginPage({ onLogin }) {
         token: result.access_token
       });
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Login failed. Check your credentials and try again.');
+      setError(describeApiError(err, 'Login failed. Check your credentials and try again.'));
     } finally {
       setLoading(false);
     }
@@ -153,7 +187,7 @@ export default function LoginPage({ onLogin }) {
         token: result.access_token
       });
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Registration failed. Please try again.');
+      setError(describeApiError(err, 'Registration failed. Please try again.'));
     } finally {
       setLoading(false);
     }
