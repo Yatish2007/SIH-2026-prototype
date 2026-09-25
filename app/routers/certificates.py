@@ -1,26 +1,24 @@
-import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Certificate, PostAssessment, Course, User
+from ..models import Certificate, CourseCompletion, Course, User
 from ..schemas import PostAssessmentRequest, CertificateResponse
+from ..services.certificate_generator import generate_certificate
+from ..services.completion import (
+    best_assessment_result,
+    get_certificate_eligibility,
+    get_or_create_certificate
+)
 from .users import get_current_user
 
-# Add certificate-system directory to sys.path
-CERT_SYSTEM_DIR = Path(__file__).resolve().parent.parent.parent / "certificate-system"
-if str(CERT_SYSTEM_DIR) not in sys.path:
-    sys.path.insert(0, str(CERT_SYSTEM_DIR))
-
-try:
-    from certificate_generator import generate_certificate
-except Exception as e:
-    generate_certificate = None
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+CERT_OUTPUT_DIR = ROOT_DIR / "certificate-system" / "certificates"
 
 router = APIRouter(
     prefix="/certificates",
@@ -34,67 +32,55 @@ def submit_post_assessment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Fetches/creates the certificate ONLY when the backend has already
+    validated course completion (learning policy + final assessment).
+    This endpoint never grades or fabricates results - the certificate
+    is issued by the final-assessment flow when eligibility is met.
+    """
     course = db.query(Course).filter(Course.id == data.course_id).first()
-    course_title = course.title if course else "Capacity Building Course"
-    c_id = course.id if course else 1
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
 
-    # Evaluate post-assessment answers
-    total = len(data.answers) if data.answers else 5
-    score = total
-    passed = True
-
-    post_att = PostAssessment(
-        user_id=current_user.id,
-        course_id=c_id,
-        score=score,
-        passed=passed
-    )
-    db.add(post_att)
-    db.commit()
-
-    # Generate certificate if passed
-    cert_code = f"CC-{uuid.uuid4().hex[:8].upper()}"
-
-    existing_cert = (
-        db.query(Certificate)
-        .filter(Certificate.user_id == current_user.id, Certificate.course_id == c_id)
-        .first()
-    )
-
-    if not existing_cert:
-        cert = Certificate(
-            user_id=current_user.id,
-            course_id=c_id,
-            certificate_code=cert_code,
-            issued_date=datetime.utcnow()
+    eligible, reasons = get_certificate_eligibility(data.course_id, current_user.id, db)
+    if not eligible:
+        raise HTTPException(
+            status_code=403,
+            detail={"message": "Certificate is not yet eligible.", "reasons": reasons}
         )
-        db.add(cert)
-        db.commit()
-        db.refresh(cert)
-    else:
-        cert = existing_cert
 
-    # Trigger PDF Generation from certificate-system generator
+    best = best_assessment_result(data.course_id, current_user.id, db)
+    score = best.percentage if best else 0.0
+
+    cert = get_or_create_certificate(
+        data.course_id,
+        current_user.id,
+        db,
+        course_title=course.title,
+        score=score,
+    )
+    if not cert:
+        raise HTTPException(status_code=403, detail="Certificate is not eligible yet.")
+
     if generate_certificate:
-        student_payload = {
-            "name": current_user.name,
-            "course": course_title,
-            "score": 100,
-            "completion_date": cert.issued_date.strftime("%Y-%m-%d"),
-            "certificate_id": cert.certificate_code
-        }
         try:
-            generate_certificate(student_payload)
-        except Exception as err:
-            print("Certificate Generator integration note:", err)
+            generate_certificate({
+                "name": current_user.name,
+                "course": course.title,
+                "score": int(score),
+                "completion_date": cert.issued_date.strftime("%Y-%m-%d"),
+                "certificate_id": cert.certificate_code,
+            })
+        except Exception as e:
+            print("Certificate Generator notice:", e)
 
     return CertificateResponse(
         id=cert.id,
         user_name=current_user.name,
-        course_title=course_title,
+        course_title=course.title,
         certificate_code=cert.certificate_code,
         issued_date=cert.issued_date,
-        status="VALID"
+        status="VALID",
     )
 
 
@@ -132,14 +118,23 @@ def download_certificate(
 
     user = db.query(User).filter(User.id == cert.user_id).first()
     course = db.query(Course).filter(Course.id == cert.course_id).first()
+    completion = (
+        db.query(CourseCompletion)
+        .filter(
+            CourseCompletion.user_id == cert.user_id,
+            CourseCompletion.course_id == cert.course_id
+        )
+        .first()
+    )
+    score = completion.final_score if completion else 0.0
 
-    pdf_file = CERT_SYSTEM_DIR / "certificates" / f"{certificate_code}.pdf"
+    pdf_file = CERT_OUTPUT_DIR / f"{certificate_code}.pdf"
 
     if not pdf_file.exists() and generate_certificate:
         student_payload = {
             "name": user.name if user else "Trainee User",
             "course": course.title if course else "Capacity Building Course",
-            "score": 100,
+            "score": int(score),
             "completion_date": cert.issued_date.strftime("%Y-%m-%d"),
             "certificate_id": cert.certificate_code
         }

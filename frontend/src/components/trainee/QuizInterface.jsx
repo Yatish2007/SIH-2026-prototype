@@ -70,7 +70,7 @@ export default function QuizInterface({ selectedCourse, selfLevel, onCompleteQui
       <div className="flex items-center justify-between border-b border-slate-700/60 pb-4">
         <div>
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-            Pre-Assessment Quiz — {selectedCourse?.title || 'Python Programming'}
+            Pre-Assessment Quiz — {selectedCourse?.title || 'Course'}
           </span>
           <div className="flex items-center gap-2">
             <span className={`text-xs font-semibold border px-2.5 py-0.5 rounded-md ${difficultyBadgeColor(q?.difficulty)}`}>

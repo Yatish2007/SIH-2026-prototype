@@ -5,11 +5,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from .database import Base, engine
 from .routers import auth, users, courses, personalization, monitoring, certificates, trainer, admin
 from .storage import stream_file_with_range
+from .migrations import run_migrations
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    run_migrations()
     yield
 
 

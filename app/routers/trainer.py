@@ -98,8 +98,10 @@ def create_course_module(
 @router.get("/courses/{course_id}/modules", response_model=List[ModuleResponse])
 def get_course_modules(
     course_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    verify_trainer_access(current_user)
     modules = (
         db.query(CourseModule)
         .filter(CourseModule.course_id == course_id)
@@ -297,14 +299,16 @@ def delete_course_material(
 @router.get("/courses/{course_id}/learning-policy", response_model=LearningPolicyResponse)
 def get_learning_policy(
     course_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    verify_trainer_access(current_user)
     policy = db.query(LearningPolicy).filter(LearningPolicy.course_id == course_id).first()
     if not policy:
         # Create default policy if none exists
         policy = LearningPolicy(
             course_id=course_id,
-            trainer_id=1,
+            trainer_id=current_user.id,
             minimum_content_percentage=90.0,
             minimum_video_watch_percentage=85.0,
             maximum_skip_percentage=15.0,
@@ -334,11 +338,11 @@ def update_learning_policy(
         policy = LearningPolicy(
             course_id=course_id,
             trainer_id=current_user.id,
-            minimum_content_percentage=data.minimum_content_percentage or 90.0,
-            minimum_video_watch_percentage=data.minimum_video_watch_percentage or 85.0,
-            maximum_skip_percentage=data.maximum_skip_percentage or 15.0,
-            allowed_playback_speed=data.allowed_playback_speed or 1.5,
-            inactivity_threshold=data.inactivity_threshold or 60,
+            minimum_content_percentage=data.minimum_content_percentage if data.minimum_content_percentage is not None else 90.0,
+            minimum_video_watch_percentage=data.minimum_video_watch_percentage if data.minimum_video_watch_percentage is not None else 85.0,
+            maximum_skip_percentage=data.maximum_skip_percentage if data.maximum_skip_percentage is not None else 15.0,
+            allowed_playback_speed=data.allowed_playback_speed if data.allowed_playback_speed is not None else 1.5,
+            inactivity_threshold=data.inactivity_threshold if data.inactivity_threshold is not None else 60,
             require_all_mandatory_modules=data.require_all_mandatory_modules if data.require_all_mandatory_modules is not None else True,
             final_assessment_required=data.final_assessment_required if data.final_assessment_required is not None else True
         )
@@ -652,6 +656,7 @@ def get_trainer_resources(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    verify_trainer_access(current_user)
     resources = db.query(TrainerResource).all()
     results = []
     for r in resources:
@@ -675,11 +680,24 @@ def create_trainer_resource(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    verify_trainer_access(current_user)
+    course_id = data.get("course_id")
+    if not course_id:
+        raise HTTPException(status_code=400, detail="course_id is required")
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    title = data.get("title")
+    file_type = data.get("file_type")
+    resource_url = data.get("resource_url")
+    if not title or not file_type or not resource_url:
+        raise HTTPException(status_code=400, detail="title, file_type and resource_url are required")
+
     res = TrainerResource(
-        course_id=data.get("course_id", 1),
-        title=data.get("title", "Resource Document"),
-        file_type=data.get("file_type", "PDF"),
-        resource_url=data.get("resource_url", "https://example.com/sop.pdf"),
+        course_id=course_id,
+        title=title,
+        file_type=file_type,
+        resource_url=resource_url,
         uploaded_by=current_user.name
     )
     db.add(res)
@@ -689,10 +707,41 @@ def create_trainer_resource(
 
 
 @router.get("/skill-gap-analytics")
-def get_skill_gap_analytics(db: Session = Depends(get_db)):
-    topic_gaps = {
-        "Python Syntax": {"topic": "Python Syntax", "proficiencyScore": 68, "gapDescription": "Struggles with lambda functions & comprehensions", "recommendedModules": ["Advanced Syntax & Lambda Expressions"]},
-        "Concurrency & GIL": {"topic": "Concurrency & GIL", "proficiencyScore": 45, "gapDescription": "Misunderstandings regarding GIL thread lock & asyncio event loops", "recommendedModules": ["Python Concurrency Deep-Dive"]},
-        "Memory Management": {"topic": "Memory Management", "proficiencyScore": 58, "gapDescription": "Unclear on reference counting vs cycle collection", "recommendedModules": ["Memory Optimization & Profiling"]}
-    }
-    return list(topic_gaps.values())
+def get_skill_gap_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    verify_trainer_access(current_user)
+    sessions = db.query(LearningSession).all()
+    attempts = db.query(FinalAssessmentAttempt).all()
+    completions = db.query(CourseCompletion).all()
+
+    course_rows = {}
+    for s in sessions:
+        agg = course_rows.setdefault(s.course_id, {"course_id": s.course_id, "trainees_engaged": set(), "avg_progress": 0.0})
+        agg["trainees_engaged"].add(s.user_id)
+
+    for a in attempts:
+        agg = course_rows.setdefault(a.course_id, {"course_id": a.course_id, "trainees_engaged": set(), "avg_progress": 0.0})
+        agg.setdefault("attempts", []).append(a.percentage)
+
+    for c in completions:
+        agg = course_rows.setdefault(c.course_id, {"course_id": c.course_id, "trainees_engaged": set(), "avg_progress": 0.0})
+        if c.learning_policy_passed and c.final_assessment_passed:
+            agg.setdefault("completed", 0)
+            agg["completed"] += 1
+
+    results = []
+    for cid, agg in course_rows.items():
+        course = db.query(Course).filter(Course.id == cid).first()
+        attempts = agg.get("attempts") or []
+        avg_score = round(sum(attempts) / len(attempts), 1) if attempts else None
+        results.append({
+            "course_id": cid,
+            "course_title": course.title if course else f"Course {cid}",
+            "trainees_engaged": len(agg["trainees_engaged"]),
+            "average_assessment_score": avg_score,
+            "completed_count": agg.get("completed", 0)
+        })
+
+    return results

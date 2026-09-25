@@ -2,9 +2,9 @@ import React from 'react';
 import { Award, CheckCircle2, Download, Printer, ShieldCheck, Sparkles, QrCode } from 'lucide-react';
 
 export default function CertificateView({ certData, currentUser, onRestart }) {
-  const code = certData?.certificate_code || "CC-9F8A2E10";
-  const courseTitle = certData?.course_title || "Python Programming";
-  const name = currentUser?.name || certData?.user_name || "Certified Trainee";
+  const code = certData?.certificate_code || '';
+  const courseTitle = certData?.course_title || '';
+  const name = currentUser?.name || certData?.user_name || '';
   const score = certData?.score ?? null;
   const dateStr = certData?.issued_date
     ? new Date(certData.issued_date).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -28,7 +28,7 @@ export default function CertificateView({ certData, currentUser, onRestart }) {
 
         <div className="flex items-center gap-3 flex-wrap">
           <a
-            href={`http://localhost:8000/certificates/download/${code}`}
+            href={`http://127.0.0.1:8001/certificates/download/${code}`}
             target="_blank"
             rel="noopener noreferrer"
             className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/30"

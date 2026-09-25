@@ -29,6 +29,14 @@ VALID_ROLES = {
     "admin"
 }
 
+# Roles a member of the public may self-register. Admin accounts can only be
+# created or assigned by an existing administrator (see admin router), never
+# through the public registration endpoint.
+PUBLIC_REGISTER_ROLES = {
+    "trainee",
+    "trainer"
+}
+
 
 @router.post(
     "/register",
@@ -43,6 +51,12 @@ def register(
         raise HTTPException(
             status_code=400,
             detail="Invalid role"
+        )
+
+    if user_data.role not in PUBLIC_REGISTER_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Self-registration is not allowed for this role. Please contact an administrator."
         )
 
     existing_user = (

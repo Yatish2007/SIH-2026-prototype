@@ -36,12 +36,14 @@ ALTER TABLE learning_policies ADD COLUMN IF NOT EXISTS max_significant_seeks INT
 ALTER TABLE learning_policies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 -- 6. Learning Sessions Columns
+ALTER TABLE learning_sessions ALTER COLUMN personalized_path_id DROP NOT NULL;
 ALTER TABLE learning_sessions ADD COLUMN IF NOT EXISTS module_id INTEGER;
 ALTER TABLE learning_sessions ADD COLUMN IF NOT EXISTS material_id INTEGER;
 ALTER TABLE learning_sessions ADD COLUMN IF NOT EXISTS watch_time_seconds FLOAT DEFAULT 0.0;
 ALTER TABLE learning_sessions ADD COLUMN IF NOT EXISTS skipped_time_seconds FLOAT DEFAULT 0.0;
 ALTER TABLE learning_sessions ADD COLUMN IF NOT EXISTS playback_speed FLOAT DEFAULT 1.0;
 ALTER TABLE learning_sessions ADD COLUMN IF NOT EXISTS inactivity_count INTEGER DEFAULT 0;
+ALTER TABLE learning_sessions ADD COLUMN IF NOT EXISTS consumed_segments_json TEXT;
 ALTER TABLE learning_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 -- 7. Course Completions Columns
@@ -91,10 +93,9 @@ def run_migrations():
                 db.add(new_user)
                 print(f"Seeded user: {acc['email']} ({acc['role']})")
             else:
-                # Ensure password and role are correct for standard demo login
-                existing.role = acc["role"]
-                existing.password = hash_password(acc["password"])
-                print(f"Updated user credentials: {acc['email']} ({acc['role']})")
+                # Never overwrite an account that already exists; the backend
+                # account is the source of truth for its identity and role.
+                print(f"Demo account already exists, kept as-is: {acc['email']}")
 
         db.commit()
     except Exception as e:

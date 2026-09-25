@@ -4,10 +4,10 @@ import {
   AlertTriangle, ShieldCheck, Clock, RefreshCw, Sparkles,
   BookOpen, AlertCircle, Check, HelpCircle
 } from 'lucide-react';
-import { finalAssessmentService, certificateService } from '../../services/api';
+import { finalAssessmentService } from '../../services/api';
 
 export default function PostAssessment({ selectedCourse, onCertificateEarned, onBackToLearning }) {
-  const courseId = selectedCourse?.id || 1;
+  const courseId = selectedCourse?.id;
 
   const [loading, setLoading] = useState(true);
   const [assessmentStatus, setAssessmentStatus] = useState(null);
@@ -17,6 +17,7 @@ export default function PostAssessment({ selectedCourse, onCertificateEarned, on
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [secondsLeft, setSecondsLeft] = useState(null);
+  const [error, setError] = useState('');
 
   // 1. Fetch real assessment data & policy status from backend
   const loadAssessment = async () => {
@@ -24,49 +25,24 @@ export default function PostAssessment({ selectedCourse, onCertificateEarned, on
     setResult(null);
     setAnswers({});
     setActiveIdx(0);
+    setError('');
     try {
+      if (!courseId) {
+        setError('No course selected.');
+        return;
+      }
       const data = await finalAssessmentService.getAssessmentStatus(courseId);
       if (data) {
         setAssessmentStatus(data);
         if (data.questions && data.questions.length > 0) {
           setQuestions(data.questions);
-        } else if (!data.is_locked) {
-          // Fallback sample questions if course assessment has no questions yet
-          setQuestions([
-            {
-              id: 1,
-              course_id: courseId,
-              question: "Which mechanism ensures memory safety and avoids circular reference leaks in standard application code?",
-              options: [
-                "Cyclic reference tracking & weak references",
-                "Infinite process restarting",
-                "Global static allocations",
-                "Disabling garbage collection"
-              ],
-              marks: 2,
-              order_index: 1
-            },
-            {
-              id: 2,
-              course_id: courseId,
-              question: "What is the primary operational advantage of AI-based personalized learning pathways?",
-              options: [
-                "Static duration for all participants regardless of prior knowledge",
-                "Adapts instructional depth dynamically according to demonstrated skill gaps",
-                "Disables video telemetry tracking",
-                "Randomizes certificates with arbitrary metrics"
-              ],
-              marks: 2,
-              order_index: 2
-            }
-          ]);
         }
         if (data.time_limit_minutes && data.time_limit_minutes > 0) {
           setSecondsLeft(data.time_limit_minutes * 60);
         }
       }
     } catch (err) {
-      console.error('Failed to load assessment:', err);
+      setError(err?.response?.data?.detail || 'Failed to load assessment.');
     } finally {
       setLoading(false);
     }
@@ -83,15 +59,19 @@ export default function PostAssessment({ selectedCourse, onCertificateEarned, on
       setSecondsLeft((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          // Auto-submit if time runs out
-          handleSubmit();
+          // Auto-submit if time runs out and every question is answered
+          const isAllAnswered = questions.length > 0 &&
+            Object.keys(answers).length >= questions.length;
+          if (isAllAnswered) {
+            handleSubmit();
+          }
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [secondsLeft, result, assessmentStatus?.is_locked]);
+  }, [secondsLeft, result, assessmentStatus?.is_locked, questions, answers]);
 
   const formatTimer = (secs) => {
     if (secs === null) return '--:--';
@@ -108,53 +88,29 @@ export default function PostAssessment({ selectedCourse, onCertificateEarned, on
     if (submitting) return;
     setSubmitting(true);
     try {
-      // Submit to real endpoint
+      // The backend grades, enforces the learning policy lock, and issues
+      // the certificate only when all completion requirements are met.
       const submitRes = await finalAssessmentService.submitAssessment(courseId, answers);
       setResult(submitRes);
     } catch (err) {
-      console.error('Submission error:', err);
-      // Fallback evaluation
-      const totalMarks = questions.reduce((sum, q) => sum + (q.marks || 1), 0) || 4;
-      const countAnswered = Object.keys(answers).length;
-      const score = Math.max(1, countAnswered * 2);
-      const pct = Math.round((score / totalMarks) * 100);
-      const passed = pct >= (assessmentStatus?.pass_percentage || 70);
-
-      // Fallback submit to certificate service
-      let certCode = null;
-      if (passed) {
-        try {
-          const cert = await certificateService.submitPostAssessment(courseId, Object.entries(answers).map(([qid, opt]) => ({ question_id: parseInt(qid), selected_option: opt })));
-          certCode = cert?.certificate_code || "CC-9F8A2E10";
-        } catch (e) {
-          certCode = "CC-9F8A2E10";
-        }
+      const detail = err?.response?.data?.detail;
+      if (detail && typeof detail === 'object' && detail.lock_reasons) {
+        setError(`Final assessment is locked. ${detail.lock_reasons.join(' ')}`);
+      } else {
+        setError(detail || 'Assessment submission failed. Please try again.');
       }
-
-      setResult({
-        attempt_id: Date.now(),
-        course_id: courseId,
-        score: score,
-        total_marks: totalMarks,
-        percentage: pct,
-        passed: passed,
-        pass_percentage: assessmentStatus?.pass_percentage || 70,
-        attempt_number: (assessmentStatus?.attempts_used || 0) + 1,
-        attempts_remaining: Math.max(0, (assessmentStatus?.max_attempts || 2) - ((assessmentStatus?.attempts_used || 0) + 1)),
-        certificate_code: certCode,
-        message: passed ? "Congratulations! You passed the assessment." : "Assessment threshold not achieved."
-      });
+      await loadAssessment();
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleClaimCertificate = () => {
-    if (result && result.passed) {
+    if (result && result.passed && result.certificate_code) {
       onCertificateEarned({
-        certificate_code: result.certificate_code || "CC-9F8A2E10",
-        course_title: selectedCourse?.title || "Capacity Building Course",
-        user_name: "Certified Trainee",
+        certificate_code: result.certificate_code,
+        course_title: selectedCourse?.title || 'Capacity Building Course',
+        user_name: '',
         issued_date: new Date().toISOString(),
         score: result.percentage
       });
@@ -267,6 +223,74 @@ export default function PostAssessment({ selectedCourse, onCertificateEarned, on
               <ArrowLeft className="w-4 h-4" /> Review Course Content
             </button>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------
+  // RENDER: Load Error State
+  // ------------------------------------
+  if (error && !result && !assessmentStatus?.is_locked) {
+    return (
+      <div className="max-w-2xl mx-auto bg-slate-900 border border-rose-500/30 rounded-2xl p-8 shadow-2xl space-y-6 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto text-rose-400">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-black text-white">Assessment Unavailable</h2>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">{error}</p>
+        </div>
+        <div className="flex justify-center gap-3 pt-2">
+          {onBackToLearning && (
+            <button
+              onClick={onBackToLearning}
+              className="px-6 py-3 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 inline-flex items-center gap-2 transition-all"
+            >
+              <ArrowLeft className="w-4 h-4" /> Return to Learning Module
+            </button>
+          )}
+          <button
+            onClick={loadAssessment}
+            className="px-6 py-3 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white inline-flex items-center gap-2 transition-all"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------
+  // RENDER: No Questions Configured
+  // ------------------------------------
+  if (questions.length === 0 && !assessmentStatus?.is_locked && !result) {
+    return (
+      <div className="max-w-2xl mx-auto bg-slate-900 border border-amber-500/30 rounded-2xl p-8 shadow-2xl space-y-6 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+          <BookOpen className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-black text-white">No Assessment Configured</h2>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            The course trainer has not published final assessment questions for this course yet.
+          </p>
+        </div>
+        <div className="flex justify-center gap-3 pt-2">
+          {onBackToLearning && (
+            <button
+              onClick={onBackToLearning}
+              className="px-6 py-3 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 inline-flex items-center gap-2 transition-all"
+            >
+              <ArrowLeft className="w-4 h-4" /> Return to Learning Module
+            </button>
+          )}
+          <button
+            onClick={loadAssessment}
+            className="px-6 py-3 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white inline-flex items-center gap-2 transition-all"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
         </div>
       </div>
     );

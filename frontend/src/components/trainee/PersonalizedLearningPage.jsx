@@ -39,20 +39,22 @@ export default function PersonalizedLearningPage({ scalingResult, selectedCourse
         setPathData(pathResult);
 
         // Get real course detail with modules & materials
-        const courseId = selectedCourse?.id || pathResult.course_id || 1;
-        const detail = await courseService.getCourseDetail(courseId);
-        setCourseDetail(detail);
+        const courseId = selectedCourse?.id || pathResult.course_id;
+        if (courseId) {
+          const detail = await courseService.getCourseDetail(courseId);
+          setCourseDetail(detail);
 
-        // Auto-select first module with materials
-        if (detail?.modules?.length > 0) {
-          const firstWithMaterials = detail.modules.find(m => m.materials?.length > 0);
-          if (firstWithMaterials) {
-            setSelectedModule(firstWithMaterials);
-            if (firstWithMaterials.materials?.length > 0) {
-              setSelectedMaterial(firstWithMaterials.materials[0]);
+          // Auto-select first module with materials
+          if (detail?.modules?.length > 0) {
+            const firstWithMaterials = detail.modules.find(m => m.materials?.length > 0);
+            if (firstWithMaterials) {
+              setSelectedModule(firstWithMaterials);
+              if (firstWithMaterials.materials?.length > 0) {
+                setSelectedMaterial(firstWithMaterials.materials[0]);
+              }
+            } else {
+              setSelectedModule(detail.modules[0]);
             }
-          } else {
-            setSelectedModule(detail.modules[0]);
           }
         }
       } catch (e) {
@@ -308,13 +310,12 @@ export default function PersonalizedLearningPage({ scalingResult, selectedCourse
               />
             </div>
           ) : (
-            // No material selected — show AI Slide Player
+            // No material selected — show a placeholder while content loads
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 shadow-lg">
               <div className="flex items-center justify-between mb-3 px-1">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Video className="w-4 h-4 text-blue-400" /> {pathData?.video_title || 'AI Instructional Video'}
+                  <Video className="w-4 h-4 text-blue-400" /> {pathData?.video_title || 'Learning Material'}
                 </h3>
-                <span className="text-[11px] text-slate-400 font-mono">AI Monitored Stream</span>
               </div>
               <AIVideoPlayer
                 pathData={pathData}

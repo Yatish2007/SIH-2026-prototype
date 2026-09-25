@@ -1,0 +1,5 @@
+Running database migrations...
+Database schema migration completed successfully.
+Demo account already exists, kept as-is: trainer_user@capacityconnect.org
+Demo account already exists, kept as-is: trainee_user@capacityconnect.org
+Demo account already exists, kept as-is: admin_user@capacityconnect.org

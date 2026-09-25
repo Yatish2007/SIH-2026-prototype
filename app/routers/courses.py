@@ -1,9 +1,6 @@
 import json
-import sys
-import uuid
 from datetime import datetime
-from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -17,8 +14,6 @@ from ..models import (
     FinalAssessmentQuestion,
     FinalAssessmentAttempt,
     CourseCompletion,
-    Certificate,
-    LearningSession,
     QuizQuestion,
     User
 )
@@ -35,17 +30,13 @@ from ..schemas import (
     FinalAssessmentSubmitRequest,
     FinalAssessmentAttemptResult
 )
+from ..services.certificate_generator import generate_certificate
+from ..services.completion import (
+    evaluate_learning_policy,
+    get_or_create_certificate,
+    get_certificate_eligibility
+)
 from .users import get_current_user
-
-# Setup certificate generator path
-CERT_SYSTEM_DIR = Path(__file__).resolve().parent.parent.parent / "certificate-system"
-if str(CERT_SYSTEM_DIR) not in sys.path:
-    sys.path.insert(0, str(CERT_SYSTEM_DIR))
-
-try:
-    from certificate_generator import generate_certificate
-except Exception as e:
-    generate_certificate = None
 
 
 router = APIRouter(
@@ -454,8 +445,6 @@ def update_course(
 def get_course_quiz(course_id: int, db: Session = Depends(get_db)):
     seed_database(db)
     questions = db.query(QuizQuestion).filter(QuizQuestion.course_id == course_id).all()
-    if not questions:
-        questions = db.query(QuizQuestion).filter(QuizQuestion.course_id == 1).all()
 
     result = []
     for q in questions:
@@ -471,68 +460,8 @@ def get_course_quiz(course_id: int, db: Session = Depends(get_db)):
 
 
 def check_learning_policy_compliance(course_id: int, user_id: int, db: Session) -> Tuple[bool, List[str]]:
-    policy = db.query(LearningPolicy).filter(LearningPolicy.course_id == course_id).first()
-    if not policy:
-        return True, []
-
-    # If course completion already marks learning policy passed
-    comp = (
-        db.query(CourseCompletion)
-        .filter(CourseCompletion.user_id == user_id, CourseCompletion.course_id == course_id)
-        .first()
-    )
-    if comp and comp.learning_policy_passed:
-        return True, []
-
-    sessions = (
-        db.query(LearningSession)
-        .filter(LearningSession.user_id == user_id, LearningSession.course_id == course_id)
-        .all()
-    )
-    max_progress = max([s.progress_pct for s in sessions], default=0.0)
-
-    mandatory_modules = (
-        db.query(CourseModule)
-        .filter(CourseModule.course_id == course_id, CourseModule.is_mandatory == True)
-        .all()
-    )
-    total_mandatory = len(mandatory_modules)
-    is_video_watched = max_progress >= policy.minimum_video_watch_percentage
-    if is_video_watched:
-        mandatory_completed = total_mandatory
-    else:
-        mandatory_completed = max(0, int(total_mandatory * (max_progress / 100)))
-
-    reasons = []
-    if max_progress < policy.minimum_content_percentage:
-        reasons.append(
-            f"Content consumption ({max_progress:.0f}%) is below trainer requirement ({policy.minimum_content_percentage:.0f}%)."
-        )
-    if not is_video_watched:
-        reasons.append(
-            f"Video watch time ({max_progress:.0f}%) is below required minimum ({policy.minimum_video_watch_percentage:.0f}%)."
-        )
-    if policy.require_all_mandatory_modules and mandatory_completed < total_mandatory:
-        reasons.append(
-            f"Mandatory modules incomplete ({mandatory_completed}/{total_mandatory} completed)."
-        )
-
-    passed = len(reasons) == 0
-    if passed:
-        if not comp:
-            comp = CourseCompletion(
-                user_id=user_id,
-                course_id=course_id,
-                learning_policy_passed=True,
-                final_assessment_passed=False
-            )
-            db.add(comp)
-            db.commit()
-        else:
-            comp.learning_policy_passed = True
-            db.commit()
-
-    return passed, reasons
+    result = evaluate_learning_policy(course_id, user_id, db)
+    return result["policy_passed"], result["reasons"]
 
 
 @router.get("/{course_id}/final-assessment", response_model=FinalAssessmentStatusResponse)
@@ -550,9 +479,7 @@ def get_final_assessment_status(
 
     assessment = db.query(FinalAssessment).filter(FinalAssessment.course_id == course_id).first()
     if not assessment:
-        assessment = db.query(FinalAssessment).filter(FinalAssessment.course_id == 1).first()
-        if not assessment:
-            raise HTTPException(status_code=404, detail="Final assessment configuration not found")
+        raise HTTPException(status_code=404, detail="Final assessment configuration not found")
 
     # 2. Fetch questions
     questions = (
@@ -561,13 +488,6 @@ def get_final_assessment_status(
         .order_by(FinalAssessmentQuestion.order_index.asc())
         .all()
     )
-    if not questions:
-        questions = (
-            db.query(FinalAssessmentQuestion)
-            .filter(FinalAssessmentQuestion.course_id == 1)
-            .order_by(FinalAssessmentQuestion.order_index.asc())
-            .all()
-        )
 
     # 3. Check attempts by this user
     attempts = (
@@ -648,9 +568,16 @@ def submit_final_assessment(
 
     assessment = db.query(FinalAssessment).filter(FinalAssessment.course_id == course_id).first()
     if not assessment:
-        assessment = db.query(FinalAssessment).filter(FinalAssessment.course_id == 1).first()
-        if not assessment:
-            raise HTTPException(status_code=404, detail="Final assessment not found")
+        raise HTTPException(status_code=404, detail="Final assessment not found")
+
+    # Enforce trainer-defined learning policy BEFORE an attempt begins.
+    # The backend, not the frontend, decides whether the assessment is unlocked.
+    policy_compliant, policy_reasons = check_learning_policy_compliance(course_id, current_user.id, db)
+    if current_user.role not in {"trainer", "admin"} and not policy_compliant:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"message": "Final assessment is locked until learning requirements are met.", "lock_reasons": policy_reasons}
+        )
 
     # Check remaining attempts
     previous_attempts = (
@@ -671,11 +598,7 @@ def submit_final_assessment(
         .all()
     )
     if not questions:
-        questions = (
-            db.query(FinalAssessmentQuestion)
-            .filter(FinalAssessmentQuestion.course_id == 1)
-            .all()
-        )
+        raise HTTPException(status_code=400, detail="No final assessment questions configured for this course.")
 
     total_marks = sum(q.marks for q in questions) if questions else 1
     earned_score = 0
@@ -709,7 +632,9 @@ def submit_final_assessment(
 
     cert_code = None
     if passed:
-        # Mark CourseCompletion
+        # Record the objective assessment result. This is only ever one
+        # component of completion - the learning policy is never auto-marked
+        # as passed just because an assessment was passed.
         comp = (
             db.query(CourseCompletion)
             .filter(
@@ -722,7 +647,7 @@ def submit_final_assessment(
             comp = CourseCompletion(
                 user_id=current_user.id,
                 course_id=course_id,
-                learning_policy_passed=True,
+                learning_policy_passed=policy_compliant,
                 final_assessment_passed=True,
                 final_score=percentage,
                 completed_at=datetime.utcnow()
@@ -732,41 +657,33 @@ def submit_final_assessment(
             comp.final_assessment_passed = True
             comp.final_score = max(comp.final_score, percentage)
 
-        # Issue Certificate if not already issued
-        cert = (
-            db.query(Certificate)
-            .filter(
-                Certificate.user_id == current_user.id,
-                Certificate.course_id == course_id
-            )
-            .first()
-        )
-        if not cert:
-            cert_code = f"CC-{uuid.uuid4().hex[:8].upper()}"
-            cert = Certificate(
-                user_id=current_user.id,
-                course_id=course_id,
-                certificate_code=cert_code,
-                issued_date=datetime.utcnow()
-            )
-            db.add(cert)
-        else:
-            cert_code = cert.certificate_code
+        db.flush()
 
-        comp.certificate_code = cert_code
+        # Certificate issuance is entirely backend-controlled and gated on
+        # BOTH the learning policy AND the final assessment result.
+        eligible, eligibility_reasons = get_certificate_eligibility(course_id, current_user.id, db)
+        if eligible:
+            cert = get_or_create_certificate(
+                course_id,
+                current_user.id,
+                db,
+                course_title=course.title,
+                score=percentage
+            )
+            if cert:
+                cert_code = cert.certificate_code
 
-        # Generate official certificate PDF
-        if generate_certificate:
-            try:
-                generate_certificate({
-                    "name": current_user.name,
-                    "course": course.title,
-                    "score": int(percentage),
-                    "completion_date": cert.issued_date.strftime("%Y-%m-%d"),
-                    "certificate_id": cert_code
-                })
-            except Exception as e:
-                print("Certificate Generator notice:", e)
+            if generate_certificate and cert_code:
+                try:
+                    generate_certificate({
+                        "name": current_user.name,
+                        "course": course.title,
+                        "score": int(percentage),
+                        "completion_date": datetime.utcnow().strftime("%Y-%m-%d"),
+                        "certificate_id": cert_code
+                    })
+                except Exception as e:
+                    print("Certificate Generator notice:", e)
 
     db.commit()
     db.refresh(attempt)

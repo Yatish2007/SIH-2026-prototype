@@ -6,7 +6,10 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 load_dotenv()
 
-DATABASE_URL = "postgresql://postgres.kpxwrlhcyrqzimyfsoij:Sih-prototype%402026@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
+DATABASE_URL = os.getenv(
+    "CAPACITY_CONNECT_DATABASE_URL",
+    "postgresql://postgres.kpxwrlhcyrqzimyfsoij:Sih-prototype%402026@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
+)
 
 engine = create_engine(
     DATABASE_URL,

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Header from '@/components/layout/Header';
-import RoleSwitcher from '@/components/layout/RoleSwitcher';
 import LoginPage from './pages/LoginPage';
+import { authService } from './services/api';
 
 // Trainee Components
 import CourseSelection from './components/trainee/CourseSelection';
@@ -33,13 +33,17 @@ export default function App() {
 
   const handleLogin = (userData) => {
     setCurrentUser(userData);
+    // The role is always taken from the backend-authenticated account.
+    // There is no client-side role switching.
     setActiveRole(userData.role?.toLowerCase() || 'trainee');
     setIsAuthenticated(true);
   };
 
   const handleLogout = () => {
+    authService.logout();
     setIsAuthenticated(false);
     setCurrentUser(null);
+    setActiveRole('trainee');
     setTraineeStep('course_select');
   };
 
@@ -102,9 +106,6 @@ export default function App() {
           </button>
         </div>
       </div>
-
-      {/* Role Switcher */}
-      <RoleSwitcher activeRole={activeRole} setActiveRole={setActiveRole} />
 
       {/* Main Content Area */}
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">

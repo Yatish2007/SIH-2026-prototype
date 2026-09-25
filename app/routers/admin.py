@@ -12,10 +12,20 @@ router = APIRouter(
 )
 
 
+def verify_admin_access(current_user: User):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access restricted: Admin role required"
+        )
+
+
 @router.get("/dashboard-stats")
 def get_admin_dashboard_stats(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    verify_admin_access(current_user)
     total_users = db.query(User).count()
     trainees = db.query(User).filter(User.role == "trainee").count()
     trainers = db.query(User).filter(User.role == "trainer").count()
@@ -49,8 +59,10 @@ class RoleUpdateRequest(BaseModel):
 
 @router.get("/users")
 def list_all_users(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    verify_admin_access(current_user)
     users = db.query(User).all()
     return [{"id": u.id, "name": u.name, "email": u.email, "role": u.role, "status": "Active"} for u in users]
 
@@ -59,8 +71,10 @@ def list_all_users(
 def update_user_role(
     user_id: int,
     data: RoleUpdateRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    verify_admin_access(current_user)
     valid_roles = ["trainee", "trainer", "admin"]
     new_role = data.role.lower().strip()
     if new_role not in valid_roles:
@@ -82,8 +96,10 @@ def update_user_role(
 @router.delete("/users/{user_id}")
 def delete_user(
     user_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    verify_admin_access(current_user)
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

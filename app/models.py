@@ -216,6 +216,7 @@ class LearningSession(Base):
     skipped_time_seconds: Mapped[float] = mapped_column(Float, default=0.0)
     playback_speed: Mapped[float] = mapped_column(Float, default=1.0)
     inactivity_count: Mapped[int] = mapped_column(Integer, default=0)
+    consumed_segments_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

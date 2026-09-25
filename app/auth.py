@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta, timezone
+import os
 
 import jwt
 from pwdlib import PasswordHash
 
 
-SECRET_KEY = "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_KEY"
+SECRET_KEY = os.getenv("CAPACITY_CONNECT_SECRET_KEY", "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_KEY")
 
 ALGORITHM = "HS256"
 

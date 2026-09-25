@@ -492,7 +492,7 @@ function MaterialsList({ courseId, moduleId, moduleName, modules, setModules }) 
                   </p>
                   {mat.file_url && (
                     <a
-                      href={`http://localhost:8000${mat.file_url}`}
+                      href={`http://127.0.0.1:8001${mat.file_url}`}
                       target="_blank"
                       rel="noreferrer"
                       className="text-[10px] text-blue-400 hover:underline mt-0.5 inline-block"
@@ -894,12 +894,12 @@ function SkillGapAnalytics() {
   }, []);
 
   return (
-    <Section title="Cohort Skill-Gap & AI Remedial Analytics" icon={<Target className="w-4 h-4 text-emerald-400" />}>
+    <Section title="Cohort Skill-Gap & Analytics" icon={<Target className="w-4 h-4 text-emerald-400" />}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <p className="text-xs text-slate-300 font-semibold">Cohort Proficiency & Weak Area Diagnostics</p>
+          <p className="text-xs text-slate-300 font-semibold">Cohort Progress Diagnostics</p>
           <p className="text-[11px] text-slate-500">
-            Real-time analytics from trainee pre-assessment quizzes identifying systematic conceptual gaps and AI-generated module recommendations.
+            Factual engagement and assessment metrics per course, derived from recorded learning sessions and final assessment attempts.
           </p>
         </div>
         <button
@@ -913,16 +913,16 @@ function SkillGapAnalytics() {
       {loading ? (
         <div className="flex items-center justify-center py-10 space-y-2 text-slate-400 text-xs">
           <Loader2 className="w-5 h-5 text-emerald-400 animate-spin mr-2" />
-          <span>Analyzing cohort skill metrics...</span>
+          <span>Analyzing cohort metrics...</span>
         </div>
       ) : data.length === 0 ? (
-        <p className="text-xs text-slate-500 text-center py-6">No skill gap data recorded yet.</p>
+        <p className="text-xs text-slate-500 text-center py-6">No course analytics recorded yet.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {data.map((item, idx) => {
-            const score = item.proficiencyScore || 50;
-            const isCritical = score < 50;
-            const isModerate = score >= 50 && score < 70;
+            const avg = item.average_assessment_score;
+            const isCritical = avg !== null && avg < 50;
+            const isModerate = avg !== null && avg >= 50 && avg < 70;
 
             return (
               <div
@@ -931,11 +931,11 @@ function SkillGapAnalytics() {
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white tracking-wide">{item.topic}</span>
+                    <span className="text-xs font-bold text-white tracking-wide">{item.course_title}</span>
                     <span className={`text-xs font-mono font-bold ${
-                      isCritical ? 'text-rose-400' : isModerate ? 'text-amber-400' : 'text-emerald-400'
+                      avg === null ? 'text-slate-500' : isCritical ? 'text-rose-400' : isModerate ? 'text-amber-400' : 'text-emerald-400'
                     }`}>
-                      {score}% Proficiency
+                      {avg === null ? '—' : `${avg}% Avg Score`}
                     </span>
                   </div>
 
@@ -943,32 +943,23 @@ function SkillGapAnalytics() {
                   <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
-                        isCritical ? 'bg-rose-500' : isModerate ? 'bg-amber-500' : 'bg-emerald-500'
+                        avg === null ? 'bg-slate-600' : isCritical ? 'bg-rose-500' : isModerate ? 'bg-amber-500' : 'bg-emerald-500'
                       }`}
-                      style={{ width: `${score}%` }}
+                      style={{ width: `${avg !== null ? Math.min(avg, 100) : 0}%` }}
                     />
                   </div>
 
                   <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 text-[11px] text-slate-300">
-                    <span className="font-semibold text-slate-400 block mb-0.5">Identified Gap:</span>
-                    {item.gapDescription}
+                    <span className="font-semibold text-slate-400 block mb-0.5">Trainees Engaged:</span>
+                    {item.trainees_engaged} trainee(s)
                   </div>
                 </div>
 
                 <div className="pt-2 border-t border-slate-800/80">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-1.5 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-indigo-400" />
-                    AI Recommended Remedial
-                  </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {item.recommendedModules?.map((mod, i) => (
-                      <span
-                        key={i}
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-950/70 text-indigo-300 border border-indigo-500/30"
-                      >
-                        {mod}
-                      </span>
-                    ))}
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-950/70 text-indigo-300 border border-indigo-500/30">
+                      {item.completed_count} completed
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1018,7 +1009,7 @@ export default function TrainerDashboard() {
             Trainer Management Portal
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Create courses, upload learning materials, configure AI monitoring policies, build assessments, and track trainee progress.
+            Create courses, upload learning materials, configure learning policies, build assessments, and track trainee progress.
           </p>
         </div>
 
