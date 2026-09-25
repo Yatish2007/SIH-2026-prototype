@@ -8,3 +8,4 @@ supabase
 psycopg2-binary
 python-dotenv
 psycopg[binary]
+Pillow
