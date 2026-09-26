@@ -1,9 +1,6 @@
 from typing import List, Optional, Any, Dict
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-import re
-
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 # ==========================================
@@ -11,29 +8,10 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # ==========================================
 
 class UserRegister(BaseModel):
-    name: Optional[str] = None
-    full_name: Optional[str] = None
+    name: str
     email: str
     password: str
     role: str = "trainee"
-
-    @model_validator(mode="after")
-    def _validate(self):
-        # Accept either `name` or `full_name` so existing clients that post
-        # the documented `full_name` field keep working.
-        self.name = (self.name or self.full_name or "").strip()
-        if not self.name:
-            raise ValueError("Full name is required")
-
-        self.email = (self.email or "").strip().lower()
-        if not EMAIL_RE.match(self.email):
-            raise ValueError("Invalid email address")
-
-        if not self.password or len(self.password) < 6:
-            raise ValueError("Password must be at least 6 characters")
-
-        self.role = (self.role or "trainee").strip().lower()
-        return self
 
 
 class UserLogin(BaseModel):
