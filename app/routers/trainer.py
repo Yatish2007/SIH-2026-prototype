@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
@@ -33,6 +34,12 @@ from ..schemas import (
     FinalQuestionTrainerResponse
 )
 from ..storage import save_uploaded_file
+from ..material_config import (
+    VALID_MATERIAL_TYPES,
+    URL_MATERIAL_TYPES,
+    TEXT_MATERIAL_TYPES,
+    allowed_extensions,
+)
 from .users import get_current_user
 
 router = APIRouter(
@@ -118,22 +125,7 @@ def get_course_modules(
             .all()
         )
         mat_responses = [
-            MaterialResponse(
-                id=mat.id,
-                course_id=mat.course_id,
-                module_id=mat.module_id,
-                trainer_id=mat.trainer_id,
-                title=mat.title,
-                description=mat.description,
-                material_type=mat.material_type,
-                file_name=mat.file_name,
-                file_path=mat.file_path,
-                file_url=mat.file_url,
-                mime_type=mat.mime_type,
-                file_size=mat.file_size,
-                duration_seconds=mat.duration_seconds,
-                created_at=mat.created_at
-            )
+            MaterialResponse.model_validate(mat)
             for mat in materials
         ]
         results.append(
@@ -221,9 +213,11 @@ async def upload_course_material(
     course_id: int,
     module_id: int,
     title: str = Form(...),
-    material_type: str = Form(...), # video, document, presentation, note
+    material_type: str = Form(...),  # video, pdf, presentation, document, spreadsheet, google_sheet, link, note
     description: Optional[str] = Form(None),
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
+    external_url: Optional[str] = Form(None),
+    content: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -237,43 +231,97 @@ async def upload_course_material(
     if not module:
         raise HTTPException(status_code=404, detail="Module not found in this course")
 
-    # Save to storage (Supabase or local HTTP range streaming)
-    saved_meta = await save_uploaded_file(file, course_id, module_id, material_type)
+    mtype = (material_type or "").strip().lower()
+    if mtype not in VALID_MATERIAL_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid material type '{material_type}'. Allowed: {', '.join(sorted(VALID_MATERIAL_TYPES))}"
+        )
 
-    material = CourseMaterial(
+    if not (title or "").strip():
+        raise HTTPException(status_code=400, detail="Title is required")
+
+    material_kwargs = dict(
         course_id=course_id,
         module_id=module_id,
         trainer_id=current_user.id,
-        title=title,
+        title=title.strip(),
         description=description,
-        material_type=material_type.lower(),
-        file_name=saved_meta["file_name"],
-        file_path=saved_meta["file_path"],
-        file_url=saved_meta["file_url"],
-        mime_type=saved_meta["mime_type"],
-        file_size=saved_meta["file_size"],
-        duration_seconds=None
+        material_type=mtype,
     )
+
+    # ---- URL-backed materials (Google Sheets / external resource) ----
+    if mtype in URL_MATERIAL_TYPES:
+        url = (external_url or "").strip()
+        if not url:
+            field = "Google Sheets URL" if mtype == "google_sheet" else "Resource URL"
+            raise HTTPException(status_code=400, detail=f"{field} is required")
+
+        lowered = url.lower()
+        if not lowered.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+
+        if mtype == "google_sheet":
+            if "docs.google.com" not in lowered and "spreadsheets/d/" not in lowered:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Please provide a valid Google Sheets URL (https://docs.google.com/spreadsheets/d/...)"
+                )
+
+        material_kwargs.update(
+            external_url=url,
+            file_name="Google Sheets" if mtype == "google_sheet" else "External Resource",
+            mime_type="text/html",
+        )
+
+    # ---- Trainer-authored notes ----
+    elif mtype in TEXT_MATERIAL_TYPES:
+        body = (content or "").strip()
+        if not body:
+            raise HTTPException(status_code=400, detail="Notes content is required")
+        material_kwargs.update(
+            content=body,
+            file_name="notes.txt",
+            mime_type="text/plain",
+        )
+
+    # ---- Uploaded files (video/pdf/ppt/doc/xls) ----
+    else:
+        if not file or not file.filename:
+            raise HTTPException(
+                status_code=400,
+                detail=f"A file is required for {mtype} material"
+            )
+
+        ext = Path(file.filename).suffix.lower()
+        allowed = allowed_extensions(mtype)
+        if ext not in allowed:
+            readable = ", ".join(sorted(allowed)).upper()
+            readable = readable.replace(".XLSX", ".xlsx").replace(
+                ".DOCX", ".docx"
+            ).replace(".PPTX", ".pptx")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type '{ext or 'unknown'}'. Please upload one of: {readable}"
+            )
+
+        # Save to storage (Supabase or local HTTP range streaming)
+        saved_meta = await save_uploaded_file(file, course_id, module_id, mtype)
+        material_kwargs.update(
+            file_name=saved_meta["file_name"],
+            file_path=saved_meta["file_path"],
+            file_url=saved_meta["file_url"],
+            mime_type=saved_meta["mime_type"],
+            file_size=saved_meta["file_size"],
+            duration_seconds=None,
+        )
+
+    material = CourseMaterial(**material_kwargs)
     db.add(material)
     db.commit()
     db.refresh(material)
 
-    return MaterialResponse(
-        id=material.id,
-        course_id=material.course_id,
-        module_id=material.module_id,
-        trainer_id=material.trainer_id,
-        title=material.title,
-        description=material.description,
-        material_type=material.material_type,
-        file_name=material.file_name,
-        file_path=material.file_path,
-        file_url=material.file_url,
-        mime_type=material.mime_type,
-        file_size=material.file_size,
-        duration_seconds=material.duration_seconds,
-        created_at=material.created_at
-    )
+    return MaterialResponse.model_validate(material)
 
 
 @router.delete("/materials/{material_id}")

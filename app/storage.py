@@ -7,6 +7,12 @@ from typing import Optional, Dict, Any, Tuple
 from fastapi import HTTPException, status, UploadFile, Request
 from fastapi.responses import StreamingResponse, Response
 
+from .material_config import (
+    MAX_FILE_SIZE_BYTES,
+    human_size,
+    max_size_for,
+)
+
 # Base storage directory for reliable persistent storage
 BASE_DIR = Path(__file__).resolve().parent.parent
 UPLOADS_DIR = BASE_DIR / "uploads"
@@ -26,21 +32,23 @@ VALID_BUCKETS = {
 VIDEO_EXTENSIONS = {".mp4", ".webm", ".ogg", ".mov", ".mkv"}
 DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
 PRESENTATION_EXTENSIONS = {".ppt", ".pptx", ".key", ".pdf"}
+SPREADSHEET_EXTENSIONS = {".xls", ".xlsx", ".csv", ".ods"}
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 
 def get_bucket_for_material_type(material_type: str, filename: str) -> str:
-    ext = Path(filename).suffix.lower()
-    mat_type = material_type.lower()
-    
-    if mat_type == "video" or ext in VIDEO_EXTENSIONS:
+    # Route purely on the declared material type. Matching on the file
+    # extension used to send PDFs to the presentations bucket, because .pdf
+    # is a valid presentation extension.
+    mat_type = (material_type or "").lower()
+
+    if mat_type == "video":
         return BUCKET_VIDEOS
-    elif mat_type == "presentation" or ext in PRESENTATION_EXTENSIONS:
+    if mat_type == "presentation":
         return BUCKET_PRESENTATIONS
-    else:
-        return BUCKET_MATERIALS
+    return BUCKET_MATERIALS
 
 
 def sanitize_filename(filename: str) -> str:
@@ -69,6 +77,16 @@ async def save_uploaded_file(
     # Read and save file content
     contents = await file.read()
     file_size = len(contents)
+
+    limit = max_size_for(material_type) or MAX_FILE_SIZE_BYTES
+    if file_size > limit:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"File is too large ({human_size(file_size)}). "
+                f"Maximum allowed for {material_type} is {human_size(limit)}."
+            ),
+        )
 
     with open(target_file, "wb") as f:
         f.write(contents)

@@ -52,7 +52,15 @@ ALTER TABLE course_completions ADD COLUMN IF NOT EXISTS final_assessment_passed 
 ALTER TABLE course_completions ADD COLUMN IF NOT EXISTS final_score FLOAT DEFAULT 0.0;
 ALTER TABLE course_completions ADD COLUMN IF NOT EXISTS certificate_code VARCHAR(50);
 
--- 8. Fix PostgreSQL Sequence Counters for all tables
+-- 8. Course Materials: support non-file materials (Google Sheets, external
+-- links, trainer notes) alongside uploaded files.
+ALTER TABLE course_materials ADD COLUMN IF NOT EXISTS external_url TEXT;
+ALTER TABLE course_materials ADD COLUMN IF NOT EXISTS content TEXT;
+ALTER TABLE course_materials ALTER COLUMN file_name DROP NOT NULL;
+ALTER TABLE course_materials ALTER COLUMN file_path DROP NOT NULL;
+ALTER TABLE course_materials ALTER COLUMN file_url DROP NOT NULL;
+
+-- 9. Fix PostgreSQL Sequence Counters for all tables
 SELECT setval(pg_get_serial_sequence('courses', 'id'), COALESCE((SELECT MAX(id) FROM courses), 1));
 SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE((SELECT MAX(id) FROM users), 1));
 SELECT setval(pg_get_serial_sequence('course_modules', 'id'), COALESCE((SELECT MAX(id) FROM course_modules), 1));

@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 sqlalchemy
+pydantic
 PyJWT
 pwdlib[argon2]
 python-multipart

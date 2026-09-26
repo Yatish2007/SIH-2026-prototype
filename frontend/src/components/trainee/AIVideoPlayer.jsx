@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, CheckCircle2, FileText,
-  File, Loader2, FolderOpen
+  File, Loader2, FolderOpen, Link2, ExternalLink, StickyNote,
+  FileSpreadsheet, Presentation, Download
 } from 'lucide-react';
-import { monitoringService } from '../../services/api';
+import { monitoringService, API_BASE_URL as API_BASE } from '../../services/api';
 
-const API_BASE = 'http://127.0.0.1:8001';
 const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
 // Format seconds to MM:SS
@@ -253,54 +253,92 @@ function RealVideoPlayer({ material, sessionId, onProgress, onComplete }) {
 function MaterialViewer({ material, sessionId, onComplete }) {
   const [viewed, setViewed] = useState(false);
 
-  const fileUrl = material.file_url.startsWith('http')
-    ? material.file_url
-    : `${API_BASE}${material.file_url}`;
+  const { material_type, file_url, external_url, content, file_name, mime_type, title } = material;
+
+  const fileUrl = file_url
+    ? (file_url.startsWith('http') ? file_url : `${API_BASE}${file_url}`)
+    : null;
 
   const handleMarkComplete = () => {
     setViewed(true);
-    monitoringService.sendTelemetry(sessionId, 'completed', 100, `${material.material_type} reviewed`);
+    monitoringService.sendTelemetry(sessionId, 'completed', 100, `${material_type} reviewed`);
     onComplete?.();
   };
+
+  // Icon mapping
+  const typeIcon = {
+    pdf:          <FileText className="w-6 h-6 text-rose-400" />,
+    presentation: <Presentation className="w-6 h-6 text-purple-400" />,
+    document:     <FileText className="w-6 h-6 text-amber-400" />,
+    spreadsheet:  <FileSpreadsheet className="w-6 h-6 text-emerald-400" />,
+    google_sheet: <FileSpreadsheet className="w-6 h-6 text-green-400" />,
+    link:         <Link2 className="w-6 h-6 text-cyan-400" />,
+    note:         <StickyNote className="w-6 h-6 text-yellow-400" />,
+  }[material_type] || <File className="w-6 h-6 text-slate-400" />;
 
   return (
     <div className="bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl">
       <div className="p-5 space-y-4">
+        {/* Header */}
         <div className="flex items-center gap-3">
           <div className="p-3 rounded-xl bg-slate-800 border border-slate-700">
-            {material.material_type === 'presentation' ? (
-              <File className="w-6 h-6 text-purple-400" />
-            ) : (
-              <FileText className="w-6 h-6 text-amber-400" />
-            )}
+            {typeIcon}
           </div>
           <div>
-            <h4 className="text-sm font-bold text-white">{material.title}</h4>
-            <p className="text-xs text-slate-400">{material.file_name} • {material.material_type}</p>
+            <h4 className="text-sm font-bold text-white">{title}</h4>
+            <p className="text-xs text-slate-400">
+              {file_name || external_url || material_type}
+            </p>
           </div>
         </div>
 
-        {material.mime_type === 'application/pdf' && (
-          <div className="rounded-xl overflow-hidden border border-slate-700" style={{ height: '400px' }}>
-            <iframe
-              src={fileUrl}
-              className="w-full h-full"
-              title={material.title}
-            />
+        {/* PDF — inline iframe */}
+        {material_type === 'pdf' && fileUrl && (
+          <div className="rounded-xl overflow-hidden border border-slate-700" style={{ height: '480px' }}>
+            <iframe src={fileUrl} className="w-full h-full" title={title} />
           </div>
         )}
 
-        {material.mime_type !== 'application/pdf' && (
+        {/* Office / generic file — open/download link */}
+        {['presentation', 'document', 'spreadsheet'].includes(material_type) && fileUrl && (
           <a
             href={fileUrl}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-semibold px-4 py-2.5 rounded-lg transition-all"
           >
-            <File className="w-4 h-4" /> Open / Download File ↗
+            <Download className="w-4 h-4" /> Open / Download File ↗
           </a>
         )}
 
+        {/* Google Sheet / External Link */}
+        {['google_sheet', 'link'].includes(material_type) && external_url && (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-400">
+              {material_type === 'google_sheet'
+                ? 'This material is hosted in Google Sheets. Click below to open it.'
+                : 'This material links to an external resource.'}
+            </p>
+            <a
+              href={external_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 bg-cyan-900/40 hover:bg-cyan-900/70 border border-cyan-500/40 text-cyan-300 text-xs font-semibold px-4 py-2.5 rounded-lg transition-all"
+            >
+              <ExternalLink className="w-4 h-4" />
+              {material_type === 'google_sheet' ? 'Open Google Sheet ↗' : 'Open Resource ↗'}
+            </a>
+          </div>
+        )}
+
+        {/* Notes / trainer-written content */}
+        {material_type === 'note' && content && (
+          <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 max-h-[60vh] overflow-y-auto">
+            <pre className="text-xs text-slate-200 whitespace-pre-wrap font-mono leading-relaxed">{content}</pre>
+          </div>
+        )}
+
+        {/* Mark Complete */}
         {!viewed ? (
           <button
             onClick={handleMarkComplete}
@@ -329,7 +367,10 @@ export default function AIVideoPlayer({ pathData, onVideoComplete, courseId = nu
   const [error, setError] = useState('');
 
   const hasRealVideo = materialData && materialData.material_type === 'video' && materialData.file_url;
-  const hasRealDocument = materialData && ['document', 'presentation', 'note'].includes(materialData.material_type) && materialData.file_url;
+  // Any non-video material with a file, URL, or text content can be displayed
+  const hasRealDocument = materialData && materialData.material_type !== 'video' && (
+    materialData.file_url || materialData.external_url || materialData.content
+  );
 
   useEffect(() => {
     const startSession = async () => {

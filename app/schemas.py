@@ -118,10 +118,12 @@ class MaterialResponse(BaseModel):
     trainer_id: int
     title: str
     description: Optional[str] = None
-    material_type: str # video, document, presentation, note
-    file_name: str
-    file_path: str
-    file_url: str
+    material_type: str  # video, pdf, presentation, document, spreadsheet, google_sheet, link, note
+    file_name: Optional[str] = None
+    file_path: Optional[str] = None
+    file_url: Optional[str] = None
+    external_url: Optional[str] = None
+    content: Optional[str] = None
     mime_type: Optional[str] = None
     file_size: Optional[int] = None
     duration_seconds: Optional[float] = None

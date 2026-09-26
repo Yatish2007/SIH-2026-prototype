@@ -1,5 +1,6 @@
 import React from 'react';
 import { Award, CheckCircle2, Download, Printer, ShieldCheck, Sparkles, QrCode } from 'lucide-react';
+import { API_BASE_URL } from '../../services/api';
 
 export default function CertificateView({ certData, currentUser, onRestart }) {
   const code = certData?.certificate_code || '';
@@ -28,7 +29,7 @@ export default function CertificateView({ certData, currentUser, onRestart }) {
 
         <div className="flex items-center gap-3 flex-wrap">
           <a
-            href={`http://127.0.0.1:8001/certificates/download/${code}`}
+            href={`${API_BASE_URL}/certificates/download/${code}`}
             target="_blank"
             rel="noopener noreferrer"
             className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/30"

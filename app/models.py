@@ -55,10 +55,14 @@ class CourseMaterial(Base):
     trainer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(250), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    material_type: Mapped[str] = mapped_column(String(50), nullable=False) # video, document, presentation, note
-    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    file_url: Mapped[str] = mapped_column(Text, nullable=False)
+    material_type: Mapped[str] = mapped_column(String(50), nullable=False) # video, pdf, presentation, document, spreadsheet, google_sheet, link, note
+    # File fields are nullable because Google Sheets / external links / notes
+    # are not stored as uploaded files.
+    file_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    file_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    external_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

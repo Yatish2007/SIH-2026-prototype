@@ -3,33 +3,107 @@ import {
   UploadCloud, FileText, BarChart3, Plus, CheckCircle2, Video, Layers,
   Settings, BookOpen, Trash2, Edit3, Save, X, ChevronDown, ChevronUp,
   AlertTriangle, Users, Award, ShieldCheck, File, Presentation, FileVideo,
-  Loader2, Eye, EyeOff, RefreshCw, Target, Sparkles
+  Loader2, Eye, EyeOff, RefreshCw, Target, Sparkles, Link2, StickyNote,
+  FileSpreadsheet, Download, ExternalLink
 } from 'lucide-react';
-import { trainerService, courseService } from '../../services/api';
+import { trainerService, courseService, API_BASE_URL as API_BASE } from '../../services/api';
 import SopUploader from './SopUploader';
 
 
 // ====== HELPERS ======
 const MATERIAL_TYPE_ICONS = {
-  video: <FileVideo className="w-4 h-4 text-blue-400" />,
-  document: <FileText className="w-4 h-4 text-amber-400" />,
+  video:        <FileVideo className="w-4 h-4 text-blue-400" />,
+  pdf:          <FileText className="w-4 h-4 text-rose-400" />,
+  document:     <FileText className="w-4 h-4 text-amber-400" />,
   presentation: <Presentation className="w-4 h-4 text-purple-400" />,
-  note: <File className="w-4 h-4 text-emerald-400" />,
+  spreadsheet:  <FileSpreadsheet className="w-4 h-4 text-emerald-400" />,
+  google_sheet: <FileSpreadsheet className="w-4 h-4 text-green-400" />,
+  link:         <Link2 className="w-4 h-4 text-cyan-400" />,
+  note:         <StickyNote className="w-4 h-4 text-yellow-400" />,
 };
 
 const MATERIAL_TYPE_LABELS = {
-  video: 'Video (MP4/WebM)',
-  document: 'Document (PDF/DOC/DOCX)',
-  presentation: 'Presentation (PPT/PPTX)',
-  note: 'Notes / Text File',
+  video:        '🎥 Video (MP4/WebM/OGG)',
+  pdf:          '📄 PDF Document',
+  presentation: '📊 PowerPoint (PPT/PPTX)',
+  document:     '📝 Word Document (DOC/DOCX)',
+  spreadsheet:  '📈 Excel Spreadsheet (XLS/XLSX)',
+  google_sheet: '📊 Google Sheets (URL)',
+  link:         '🔗 External Resource (URL)',
+  note:         '📓 Notes / Content',
+};
+
+// input mode: 'file' | 'url' | 'text'
+const MATERIAL_INPUT_MODE = {
+  video:        'file',
+  pdf:          'file',
+  presentation: 'file',
+  document:     'file',
+  spreadsheet:  'file',
+  google_sheet: 'url',
+  link:         'url',
+  note:         'text',
 };
 
 const ACCEPT_FOR_TYPE = {
-  video: 'video/mp4,video/webm,video/ogg,.mp4,.webm,.ogg',
-  document: '.pdf,.doc,.docx,.txt,.md',
-  presentation: '.ppt,.pptx,.pdf',
-  note: '.txt,.md,.pdf,.doc,.docx',
+  video:        'video/mp4,video/webm,video/ogg,.mp4,.webm,.ogg',
+  pdf:          'application/pdf,.pdf',
+  presentation: '.ppt,.pptx',
+  document:     '.doc,.docx',
+  spreadsheet:  '.xls,.xlsx',
+  google_sheet: '',
+  link:         '',
+  note:         '',
 };
+
+const ALLOWED_EXTENSIONS = {
+  video:        ['.mp4', '.webm', '.ogg'],
+  pdf:          ['.pdf'],
+  presentation: ['.ppt', '.pptx'],
+  document:     ['.doc', '.docx'],
+  spreadsheet:  ['.xls', '.xlsx'],
+};
+
+// Per-type upload ceilings, mirroring app/material_config.py on the backend.
+const MAX_SIZE_BYTES = {
+  video:        500 * 1024 * 1024,
+  pdf:          50 * 1024 * 1024,
+  presentation: 50 * 1024 * 1024,
+  document:     25 * 1024 * 1024,
+  spreadsheet:  25 * 1024 * 1024,
+};
+
+const MATERIAL_HINT = {
+  video:        'Upload MP4 / WebM / OGG',
+  pdf:          'Upload PDF file',
+  presentation: 'Upload PPT / PPTX',
+  document:     'Upload DOC / DOCX',
+  spreadsheet:  'Upload XLS / XLSX',
+  google_sheet: 'Paste your Google Sheets URL here',
+  link:         'Paste the resource URL here',
+  note:         'Write your training notes / content here',
+};
+
+function getMaterialDisplayName(mat) {
+  switch (mat.material_type) {
+    case 'video':        return 'Video';
+    case 'pdf':          return 'PDF';
+    case 'presentation': return 'PowerPoint';
+    case 'document':     return 'Word Doc';
+    case 'spreadsheet':  return 'Excel';
+    case 'google_sheet': return 'Google Sheets';
+    case 'link':         return 'External Link';
+    case 'note':         return 'Notes';
+    default:             return mat.material_type;
+  }
+}
+
+function humanSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024)       return `${bytes} B`;
+  if (bytes < 1024*1024)  return `${(bytes/1024).toFixed(1)} KB`;
+  return `${(bytes/(1024*1024)).toFixed(1)} MB`;
+}
 
 function Badge({ children, color = 'blue' }) {
   const colors = {
@@ -327,32 +401,90 @@ function MaterialUploader({ courseId, moduleId, moduleName, onUploaded }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [file, setFile] = useState(null);
+  const [externalUrl, setExternalUrl] = useState('');
+  const [noteContent, setNoteContent] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [success, setSuccess] = useState('');
   const [err, setErr] = useState('');
   const fileRef = useRef();
 
+  const inputMode = MATERIAL_INPUT_MODE[materialType] || 'file';
+
+  const resetForm = () => {
+    setFile(null);
+    setExternalUrl('');
+    setNoteContent('');
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const handleTypeChange = (e) => {
+    setMaterialType(e.target.value);
+    resetForm();
+    setErr('');
+  };
+
+  // Frontend file-type + size validation (backend re-validates both)
+  const validateFile = (f, type) => {
+    const allowed = ALLOWED_EXTENSIONS[type];
+    if (!allowed) return null;
+    const ext = '.' + f.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) {
+      return `Unsupported file type "${ext}". Please upload one of: ${allowed.join(', ')}`;
+    }
+    const limit = MAX_SIZE_BYTES[type];
+    if (limit && f.size > limit) {
+      return `File is too large (${humanSize(f.size)}). Maximum for this type is ${humanSize(limit)}.`;
+    }
+    return null;
+  };
+
+  const handleFileChange = (e) => {
+    const f = e.target.files[0] || null;
+    if (f) {
+      const validErr = validateFile(f, materialType);
+      if (validErr) { setErr(validErr); setFile(null); if (fileRef.current) fileRef.current.value = ''; return; }
+    }
+    setErr('');
+    setFile(f);
+  };
+
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!file) { setErr('Please select a file.'); return; }
-    if (!title) { setErr('Please enter a title.'); return; }
+    if (!title.trim()) { setErr('Please enter a title.'); return; }
+
+    if (inputMode === 'file' && !file) { setErr('Please select a file.'); return; }
+    if (inputMode === 'url' && !externalUrl.trim()) {
+      setErr(materialType === 'google_sheet' ? 'Google Sheets URL is required.' : 'Resource URL is required.');
+      return;
+    }
+    if (inputMode === 'text' && !noteContent.trim()) { setErr('Notes content cannot be empty.'); return; }
+
     setUploading(true); setErr(''); setSuccess(''); setProgress(0);
 
     const fd = new FormData();
-    fd.append('file', file);
-    fd.append('title', title);
+    fd.append('title', title.trim());
     fd.append('material_type', materialType);
     if (description) fd.append('description', description);
 
+    if (inputMode === 'file') {
+      fd.append('file', file);
+    } else if (inputMode === 'url') {
+      fd.append('external_url', externalUrl.trim());
+    } else {
+      fd.append('content', noteContent.trim());
+    }
+
     try {
       const result = await trainerService.uploadMaterial(courseId, moduleId, fd, setProgress);
-      setSuccess(`✓ "${result.title}" uploaded successfully! (${(result.file_size / 1024).toFixed(1)} KB)`);
-      setFile(null); setTitle(''); setDescription('');
-      if (fileRef.current) fileRef.current.value = '';
+      const sizeStr = result.file_size ? ` (${humanSize(result.file_size)})` : '';
+      setSuccess(`✓ "${result.title}" added successfully!${sizeStr}`);
+      setTitle(''); setDescription('');
+      resetForm();
       if (onUploaded) onUploaded(result);
-    } catch (e) {
-      setErr(e?.response?.data?.detail || 'Upload failed. Check backend is running.');
+    } catch (ex) {
+      const detail = ex?.response?.data?.detail;
+      setErr(typeof detail === 'string' ? detail : (JSON.stringify(detail) || 'Upload failed. Check backend is running.'));
     } finally {
       setUploading(false);
     }
@@ -360,36 +492,44 @@ function MaterialUploader({ courseId, moduleId, moduleName, onUploaded }) {
 
   if (!moduleId) return null;
 
+  const submitLabel = inputMode === 'file' ? 'Upload to Module' : inputMode === 'url' ? 'Add Link to Module' : 'Save Notes to Module';
+  const canSubmit = !uploading && (
+    (inputMode === 'file' && !!file) ||
+    (inputMode === 'url' && !!externalUrl.trim()) ||
+    (inputMode === 'text' && !!noteContent.trim())
+  );
+
   return (
     <Section title={`Upload Materials → ${moduleName || 'Module'}`} icon={<UploadCloud className="w-4 h-4 text-blue-400" />}>
       <form onSubmit={handleUpload} className="space-y-4">
         {err && <div className="bg-rose-950/60 border border-rose-500/40 text-rose-300 text-xs p-3 rounded-lg flex items-center gap-2"><AlertTriangle className="w-4 h-4 shrink-0" />{err}</div>}
         {success && <div className="bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs p-3 rounded-lg flex items-center gap-2"><CheckCircle2 className="w-4 h-4 shrink-0" />{success}</div>}
 
+        {/* Row 1: Type + Title */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1.5 tracking-wider">Material Type</label>
             <select
               value={materialType}
-              onChange={e => { setMaterialType(e.target.value); setFile(null); if (fileRef.current) fileRef.current.value = ''; }}
+              onChange={handleTypeChange}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
             >
               {Object.entries(MATERIAL_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </div>
-
           <div>
             <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1.5 tracking-wider">Title *</label>
             <input
               value={title}
               onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. Introduction to Python Variables"
+              placeholder="e.g. Introduction to Python"
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
               required
             />
           </div>
         </div>
 
+        {/* Description */}
         <div>
           <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1.5 tracking-wider">Description (optional)</label>
           <input
@@ -400,36 +540,72 @@ function MaterialUploader({ courseId, moduleId, moduleName, onUploaded }) {
           />
         </div>
 
-        <div>
-          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1.5 tracking-wider">
-            File * — {MATERIAL_TYPE_LABELS[materialType]}
-          </label>
-          <div
-            className="border-2 border-dashed border-slate-600 hover:border-blue-500/60 rounded-xl p-5 text-center cursor-pointer transition-all bg-slate-900/40 relative"
-            onClick={() => fileRef.current?.click()}
-          >
+        {/* Dynamic input based on material type */}
+        {inputMode === 'file' && (
+          <div>
+            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1.5 tracking-wider">
+              File * — {MATERIAL_HINT[materialType]}
+            </label>
+            <div
+              className="border-2 border-dashed border-slate-600 hover:border-blue-500/60 rounded-xl p-5 text-center cursor-pointer transition-all bg-slate-900/40"
+              onClick={() => fileRef.current?.click()}
+            >
+              <input
+                ref={fileRef}
+                type="file"
+                accept={ACCEPT_FOR_TYPE[materialType]}
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              {file ? (
+                <div className="flex items-center justify-center gap-3">
+                  {MATERIAL_TYPE_ICONS[materialType]}
+                  <span className="text-xs text-white font-medium">{file.name}</span>
+                  <span className="text-[10px] text-slate-400">({humanSize(file.size)})</span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <UploadCloud className="w-8 h-8 text-slate-500 mx-auto" />
+                  <p className="text-xs text-slate-400">Click to select or drag & drop</p>
+                  <p className="text-[10px] text-slate-500">{ACCEPT_FOR_TYPE[materialType]}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {inputMode === 'url' && (
+          <div>
+            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1.5 tracking-wider">
+              {materialType === 'google_sheet' ? 'Google Sheets URL *' : 'Resource URL *'}
+            </label>
             <input
-              ref={fileRef}
-              type="file"
-              accept={ACCEPT_FOR_TYPE[materialType]}
-              className="hidden"
-              onChange={e => setFile(e.target.files[0] || null)}
+              type="url"
+              value={externalUrl}
+              onChange={e => setExternalUrl(e.target.value)}
+              placeholder={MATERIAL_HINT[materialType]}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              required
             />
-            {file ? (
-              <div className="flex items-center justify-center gap-3">
-                {MATERIAL_TYPE_ICONS[materialType]}
-                <span className="text-xs text-white font-medium">{file.name}</span>
-                <span className="text-[10px] text-slate-400">({(file.size / 1024).toFixed(1)} KB)</span>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <UploadCloud className="w-8 h-8 text-slate-500 mx-auto" />
-                <p className="text-xs text-slate-400">Click to select file or drag & drop</p>
-                <p className="text-[10px] text-slate-500">{ACCEPT_FOR_TYPE[materialType]}</p>
-              </div>
+            {materialType === 'google_sheet' && (
+              <p className="text-[10px] text-slate-500 mt-1.5">The Google Sheet URL will be stored. Trainees will open it in a new tab.</p>
             )}
           </div>
-        </div>
+        )}
+
+        {inputMode === 'text' && (
+          <div>
+            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1.5 tracking-wider">Notes / Content *</label>
+            <textarea
+              rows={8}
+              value={noteContent}
+              onChange={e => setNoteContent(e.target.value)}
+              placeholder={MATERIAL_HINT[materialType]}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono resize-y"
+              required
+            />
+          </div>
+        )}
 
         {uploading && (
           <div className="space-y-1.5">
@@ -444,14 +620,33 @@ function MaterialUploader({ courseId, moduleId, moduleName, onUploaded }) {
 
         <button
           type="submit"
-          disabled={uploading || !file}
+          disabled={!canSubmit}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-semibold text-xs px-5 py-2.5 rounded-lg transition-all shadow-md shadow-blue-600/30"
         >
           {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-          {uploading ? `Uploading... ${progress}%` : 'Upload to Course'}
+          {uploading ? `Uploading... ${progress}%` : submitLabel}
         </button>
       </form>
     </Section>
+  );
+}
+
+// ============================
+// MATERIAL PREVIEW MODAL (for notes)
+// ============================
+function NotesModal({ mat, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <StickyNote className="w-4 h-4 text-yellow-400" /> {mat.title}
+          </h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>
+        </div>
+        <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">{mat.content}</pre>
+      </div>
+    </div>
   );
 }
 
@@ -460,6 +655,7 @@ function MaterialUploader({ courseId, moduleId, moduleName, onUploaded }) {
 // ============================
 function MaterialsList({ courseId, moduleId, moduleName, modules, setModules }) {
   const materials = (modules.find(m => m.id === moduleId)?.materials) || [];
+  const [notesModal, setNotesModal] = useState(null);
 
   const handleDelete = async (matId) => {
     if (!window.confirm('Delete this material?')) return;
@@ -471,45 +667,98 @@ function MaterialsList({ courseId, moduleId, moduleName, modules, setModules }) 
     }
   };
 
+  const getActions = (mat) => {
+    const fileUrl = mat.file_url ? `${API_BASE}${mat.file_url}` : null;
+    const extUrl  = mat.external_url || null;
+
+    switch (mat.material_type) {
+      case 'video':
+        return fileUrl ? (
+          <a href={fileUrl} target="_blank" rel="noreferrer"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-blue-900/40 text-blue-300 hover:bg-blue-900/70 border border-blue-500/30 transition-all">
+            <Eye className="w-3 h-3" /> Preview
+          </a>
+        ) : null;
+
+      case 'pdf':
+        return fileUrl ? (
+          <a href={fileUrl} target="_blank" rel="noreferrer"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-rose-900/40 text-rose-300 hover:bg-rose-900/70 border border-rose-500/30 transition-all">
+            <Eye className="w-3 h-3" /> Open PDF
+          </a>
+        ) : null;
+
+      case 'presentation':
+      case 'document':
+      case 'spreadsheet':
+        return fileUrl ? (
+          <a href={fileUrl} target="_blank" rel="noreferrer"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-purple-900/40 text-purple-300 hover:bg-purple-900/70 border border-purple-500/30 transition-all">
+            <Download className="w-3 h-3" /> Open
+          </a>
+        ) : null;
+
+      case 'google_sheet':
+      case 'link':
+        return extUrl ? (
+          <a href={extUrl} target="_blank" rel="noreferrer"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-cyan-900/40 text-cyan-300 hover:bg-cyan-900/70 border border-cyan-500/30 transition-all">
+            <ExternalLink className="w-3 h-3" /> Open
+          </a>
+        ) : null;
+
+      case 'note':
+        return mat.content ? (
+          <button onClick={() => setNotesModal(mat)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-yellow-900/40 text-yellow-300 hover:bg-yellow-900/70 border border-yellow-500/30 transition-all">
+            <Eye className="w-3 h-3" /> View Notes
+          </button>
+        ) : null;
+
+      default:
+        return null;
+    }
+  };
+
   if (!moduleId) return null;
 
   return (
-    <Section title={`Uploaded Materials — ${moduleName || 'Module'}`} icon={<FileText className="w-4 h-4 text-amber-400" />} collapsible>
-      {materials.length === 0 ? (
-        <p className="text-xs text-slate-500 text-center py-4">No materials uploaded to this module yet.</p>
-      ) : (
-        <div className="space-y-2">
-          {materials.map(mat => (
-            <div key={mat.id} className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-slate-800 border border-slate-700">
-                  {MATERIAL_TYPE_ICONS[mat.material_type] || <File className="w-4 h-4 text-slate-400" />}
+    <>
+      {notesModal && <NotesModal mat={notesModal} onClose={() => setNotesModal(null)} />}
+      <Section title={`Uploaded Materials — ${moduleName || 'Module'}`} icon={<FileText className="w-4 h-4 text-amber-400" />} collapsible>
+        {materials.length === 0 ? (
+          <p className="text-xs text-slate-500 text-center py-4">No materials uploaded to this module yet.</p>
+        ) : (
+          <div className="divide-y divide-slate-800">
+            {materials.map(mat => (
+              <div key={mat.id} className="py-3 flex items-center justify-between gap-3 first:pt-0 last:pb-0">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className="p-2 rounded-lg bg-slate-800 border border-slate-700 shrink-0">
+                    {MATERIAL_TYPE_ICONS[mat.material_type] || <File className="w-4 h-4 text-slate-400" />}
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold text-white truncate">{mat.title}</h4>
+                    <p className="text-[11px] text-slate-400 truncate">
+                      {mat.file_name || mat.external_url || 'Notes'}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      {getMaterialDisplayName(mat)}
+                      {mat.file_size ? ` • ${humanSize(mat.file_size)}` : ''}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white">{mat.title}</h4>
-                  <p className="text-[11px] text-slate-400">
-                    {mat.file_name} • {mat.material_type} {mat.file_size ? `• ${(mat.file_size / 1024).toFixed(1)} KB` : ''}
-                  </p>
-                  {mat.file_url && (
-                    <a
-                      href={`http://127.0.0.1:8001${mat.file_url}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[10px] text-blue-400 hover:underline mt-0.5 inline-block"
-                    >
-                      Preview file ↗
-                    </a>
-                  )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {getActions(mat)}
+                  <button onClick={() => handleDelete(mat.id)} className="p-1.5 rounded-lg hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition-all">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
-              <button onClick={() => handleDelete(mat.id)} className="p-1.5 rounded-lg hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition-all shrink-0">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </Section>
+            ))}
+          </div>
+        )}
+      </Section>
+    </>
   );
 }
 
