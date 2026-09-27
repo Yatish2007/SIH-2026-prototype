@@ -27,8 +27,11 @@ app = FastAPI(
 # CORS setup - explicit local dev origins (extra origins via env, comma-separated)
 _allowed = os.getenv(
     "CAPACITY_CONNECT_CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173"
+    "http://localhost:5173,"
+    "http://127.0.0.1:5173,"
+    "https://sih-2026-prototype-pi.vercel.app"
 )
+
 ALLOWED_ORIGINS = [o.strip() for o in _allowed.split(",") if o.strip()]
 
 app.add_middleware(
@@ -76,4 +79,4 @@ def health():
     return {
         "status": "healthy"
     }
-
+
